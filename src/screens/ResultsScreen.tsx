@@ -36,7 +36,7 @@ export function ResultsScreen({ result, profile, driver, viewMode, onNextLevel, 
       <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
         {/* LEFT — driver + trophy */}
         <View style={styles.left}>
-          <DriverFace driver={driver} mode={viewMode} size={110} />
+          <DriverFace driver={driver} mode={viewMode} size={120} />
           <Text style={styles.emoji}>{result.won ? '🏆' : '💪'}</Text>
           <Text style={styles.driverLine}>{driver.faceEmoji} {driver.name} — “{driver.tagline}”</Text>
         </View>
@@ -76,18 +76,18 @@ export function ResultsScreen({ result, profile, driver, viewMode, onNextLevel, 
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   root: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20 },
-  left: { alignItems: 'center', width: 200 },
-  driverLine: { fontSize: 14, fontWeight: '800', color: '#475569', textAlign: 'center', marginTop: 6 },
-  emoji: { fontSize: 56 },
+  left: { alignItems: 'center', width: 210 },
+  driverLine: { fontSize: 15, fontWeight: '800', color: '#475569', textAlign: 'center', marginTop: 8 },
+  emoji: { fontSize: 64 },
   right: { justifyContent: 'center' },
-  title: { fontSize: 30, fontWeight: '900', color: '#1E293B', textAlign: 'center' },
-  sub: { fontSize: 16, fontWeight: '700', color: '#64748B', textAlign: 'center', marginTop: 4 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
-  stat: { width: '31%', backgroundColor: '#fff', borderRadius: 14, padding: 10, fontSize: 15, fontWeight: '900', color: '#1E293B', textAlign: 'center' },
-  btnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  btn: { flex: 1, borderRadius: 18, paddingVertical: 14, borderBottomWidth: 4, borderBottomColor: 'rgba(0,0,0,0.25)' },
+  title: { fontSize: 36, fontWeight: '900', color: '#1E293B', textAlign: 'center' },
+  sub: { fontSize: 17, fontWeight: '700', color: '#64748B', textAlign: 'center', marginTop: 4 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
+  stat: { width: '31%', backgroundColor: '#fff', borderRadius: 16, padding: 12, fontSize: 16, fontWeight: '900', color: '#1E293B', textAlign: 'center', elevation: 3 },
+  btnRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  btn: { flex: 1, borderRadius: 20, paddingVertical: 18, borderBottomWidth: 5, borderBottomColor: 'rgba(0,0,0,0.25)', elevation: 4 },
   nextBtn: { backgroundColor: '#22C55E' },
   againBtn: { backgroundColor: '#F59E0B' },
   homeBtn: { backgroundColor: '#3B82F6' },
-  btnText: { color: '#fff', fontSize: 17, fontWeight: '900', textAlign: 'center' },
+  btnText: { color: '#fff', fontSize: 19, fontWeight: '900', textAlign: 'center' },
 });

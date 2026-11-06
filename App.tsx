@@ -12,6 +12,7 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { RaceScreen } from './src/screens/RaceScreen';
 import { ResultsScreen } from './src/screens/ResultsScreen';
 import { loadProfile, saveProfile } from './src/storage';
+import { setImmersiveMode } from './src/immersive';
 import { music } from './src/music';
 import { isSfxEnabled, setSfxEnabled } from './src/sfx';
 import { driverById, DRIVERS } from './src/data/drivers';
@@ -36,6 +37,18 @@ export default function App() {
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     loadProfile().then(setProfile);
   }, []);
+
+  // Immersive mode: hide the Android status bar + navigation bar
+  // (footer / gesture bar) the moment a race starts, show them again
+  // on Home / Results. Pause is handled inside RaceScreen (it calls
+  // setImmersiveMode(false) while paused and re-hides on resume).
+  // Cleanup restores the bars if the app unmounts mid-race.
+  useEffect(() => {
+    void setImmersiveMode(screen.kind === 'race');
+    return () => {
+      void setImmersiveMode(false);
+    };
+  }, [screen.kind]);
 
   const updateProfile = (next: Profile) => {
     setProfile(next);
@@ -89,7 +102,10 @@ export default function App() {
   if (screen.kind === 'race') {
     return (
       <SafeAreaProvider>
-        <StatusBar style="dark" />
+        {/* Status bar hidden for the whole race. RaceScreen renders its
+            own <StatusBar> after this one, so on pause it can show the
+            bar again (last mounted <StatusBar> wins). */}
+        <StatusBar hidden />
         <RaceScreen
           levelId={screen.levelId}
           difficulty={screen.difficulty}

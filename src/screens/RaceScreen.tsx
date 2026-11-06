@@ -17,7 +17,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { setImmersiveMode } from '../immersive';
 import { CarView } from '../components/CarView';
 import { DriverFace, DriverViewMode } from '../components/DriverFace';
 import type { Driver } from '../data/drivers';
@@ -83,6 +85,13 @@ export function RaceScreen(props: Props) {
   const [toast, setToast] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [mph, setMph] = useState(0);
+  // Hold-to-BOOST: +30% speed while held (thumb button, bottom-right).
+  const [boosting, setBoosting] = useState(false);
+  const boostRef = useRef(false);
+  const setBoost = (on: boolean) => {
+    boostRef.current = on;
+    setBoosting(on);
+  };
 
   const laneRef = useRef(1);
   const entitiesRef = useRef<Entity[]>([]);
@@ -105,6 +114,17 @@ export function RaceScreen(props: Props) {
   // Skin Speed stat gives a tiny top-speed bonus (garage stats matter).
   const scrollSpeed = level.baseSpeed * diff.speedMul * (0.96 + skin.speed * 0.015);
   const currentMph = Math.round(90 + scrollSpeed * 0.28 + skin.speed * 4);
+
+  // Immersive mode: bars stay hidden while racing, but come back
+  // while paused (so the pause screen is a normal screen again) and
+  // re-hide on resume. Unmount restores them — App also restores on
+  // screen change, so a quit/finish can never leave them hidden.
+  useEffect(() => {
+    void setImmersiveMode(!paused);
+    return () => {
+      void setImmersiveMode(false);
+    };
+  }, [paused]);
 
   const moveLane = (dir: -1 | 1) => {
     const next = Math.max(0, Math.min(2, laneRef.current + dir));
@@ -179,10 +199,14 @@ export function RaceScreen(props: Props) {
     if (countdown > 0 || paused || finishedRef.current) return;
     const iv = setInterval(() => {
       const dt = TICK_MS / 1000;
-      const dy = scrollSpeed * dt; // single scroll delta — pacing fix
+      // Single scroll delta — pacing fix — boosted +30% while the
+      // BOOST button is held (boostRef, not state: the interval
+      // closure would go stale on the state value).
+      const dy = scrollSpeed * (boostRef.current ? 1.3 : 1) * dt;
+      const mphNow = Math.round(currentMph * (boostRef.current ? 1.3 : 1));
       setRoadOffset((o) => (o + dy) % 90);
-      topSpeedRef.current = Math.max(topSpeedRef.current, currentMph);
-      setMph(currentMph);
+      topSpeedRef.current = Math.max(topSpeedRef.current, mphNow);
+      setMph(mphNow);
 
       trafficTimer.current += TICK_MS;
       if (trafficTimer.current >= trafficInterval) {
@@ -268,6 +292,9 @@ export function RaceScreen(props: Props) {
 
   return (
     <LinearGradient colors={level.sky} style={styles.bg}>
+      {/* Status bar: hidden while racing, back while paused. This
+          <StatusBar> mounts after App's, so it wins while racing. */}
+      <StatusBar hidden={!paused} />
       {/* Horizon scenery — distant hills / trees / city per level */}
       <View style={[styles.horizon, { top: HORIZON - 52 }]}>
         <Text style={styles.horizonEmoji}>{level.scenery.join('  ')}</Text>
@@ -344,8 +371,9 @@ export function RaceScreen(props: Props) {
         <CarView color={props.skinColor} accent={props.skinAccent} emoji={vehicle.emoji} width={150} flashing={flash} mode={props.viewMode} angle="rear" stripe={skin.stripe} />
       </View>
 
-      {/* HUD — top-left: position / LAP / timer */}
-      <View style={[styles.hudLeft, { top: insets.top + 6, left: insets.left + 10 }]}>
+      {/* HUD — top-left: position / LAP / timer, on a dark pill so
+          the white text reads over any scenery */}
+      <View style={[styles.hudLeft, styles.hudPill, { top: insets.top + 6, left: insets.left + 10 }]}>
         <Text style={styles.positionText}>{position}TH</Text>
         <Text style={styles.hudSmall}>LAP {lap}/3 • {mm}:{ss}</Text>
         <Text style={styles.hudSmall}>⭐ {stars}/{level.starGoal} • 🏆 {score}</Text>
@@ -362,8 +390,8 @@ export function RaceScreen(props: Props) {
       </View>
 
       {/* HUD — top-right: big speed + speed bar (like the references) */}
-      <View style={[styles.hudRight, { top: insets.top + 6, right: insets.right + 10 }]}>
-        <Text style={styles.mphText}>{mph}<Text style={styles.mphUnit}> MPH</Text></Text>
+      <View style={[styles.hudRight, styles.hudPill, { top: insets.top + 6, right: insets.right + 10 }]}>
+        <Text style={[styles.mphText, boosting && styles.mphBoost]}>{mph}<Text style={styles.mphUnit}> MPH</Text></Text>
         <View style={styles.speedTrack}>
           <View style={[styles.speedFill, { width: `${Math.min(100, (mph / 280) * 100)}%` }]} />
         </View>
@@ -398,10 +426,20 @@ export function RaceScreen(props: Props) {
         </TouchableOpacity>
       </View>
 
-      {/* Right thumb buttons — horn + pause */}
+      {/* Right thumb buttons — horn + BOOST (hold) + pause.
+          BOOST is the big one: hold it for +30% speed. */}
       <View style={[styles.rightBtns, { right: insets.right + 14, bottom: insets.bottom + 12 }]}>
         <TouchableOpacity style={styles.hornBtn} onPress={() => { playSfx('horn'); setToast('📣 Beep beep!'); setTimeout(() => setToast(''), 900); }}>
           <Text style={styles.hornText}>📣</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.boostBtn, boosting && styles.boostBtnActive]}
+          onPressIn={() => setBoost(true)}
+          onPressOut={() => setBoost(false)}
+          disabled={paused || countdown > 0}
+        >
+          <Text style={styles.boostText}>🚀</Text>
+          <Text style={styles.boostLabel}>BOOST</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.pauseBtn} onPress={() => setPaused((p) => !p)}>
           <Text style={styles.hornText}>{paused ? '▶' : '⏸'}</Text>
@@ -430,15 +468,18 @@ const styles = StyleSheet.create({
   laneDash: { position: 'absolute', backgroundColor: '#FDE68A', borderRadius: 3 },
   trafficCar: { width: 52, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   hudLeft: { position: 'absolute', zIndex: 5 },
-  positionText: { fontSize: 30, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
-  hudSmall: { fontSize: 14, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  // Dark pill behind HUD text so it reads over bright sky / road.
+  hudPill: { backgroundColor: 'rgba(15,23,42,0.45)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12 },
+  positionText: { fontSize: 36, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  hudSmall: { fontSize: 15, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   progressWrap: { position: 'absolute', left: '32%', right: '32%', alignItems: 'center', zIndex: 5 },
   progressTrack: { width: '100%', height: 12, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 6, overflow: 'visible' },
   progressFill: { height: '100%', backgroundColor: '#22C55E', borderRadius: 6 },
   progressCar: { position: 'absolute', top: -14, fontSize: 18 },
   progressLabel: { fontSize: 13, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4, marginTop: 4 },
   hudRight: { position: 'absolute', alignItems: 'flex-end', zIndex: 5 },
-  mphText: { fontSize: 34, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  mphText: { fontSize: 42, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  mphBoost: { color: '#FDE047' },
   mphUnit: { fontSize: 16 },
   speedTrack: { width: 130, height: 10, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 5, overflow: 'hidden', marginTop: 2 },
   speedFill: { height: '100%', backgroundColor: '#F59E0B' },
@@ -453,14 +494,20 @@ const styles = StyleSheet.create({
     position: 'absolute', flexDirection: 'row', gap: 10, backgroundColor: 'rgba(255,255,255,0.25)',
     borderRadius: 999, padding: 10, zIndex: 5,
   },
-  steerBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#F59E0B', borderBottomWidth: 4, borderBottomColor: '#B45309', alignItems: 'center', justifyContent: 'center' },
-  steerText: { fontSize: 28, color: '#fff', fontWeight: '900' },
+  steerBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#F59E0B', borderBottomWidth: 5, borderBottomColor: '#B45309', alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  steerText: { fontSize: 30, color: '#fff', fontWeight: '900' },
   rightBtns: { position: 'absolute', flexDirection: 'row', gap: 10, alignItems: 'center', zIndex: 5 },
-  hornBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#EF4444', borderBottomWidth: 4, borderBottomColor: '#991B1B', alignItems: 'center', justifyContent: 'center' },
-  hornText: { fontSize: 26 },
-  pauseBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' },
-  pausedOverlay: { position: 'absolute', top: '30%', left: '30%', right: '30%', backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 20, padding: 20, alignItems: 'center' },
-  pausedText: { fontSize: 24, fontWeight: '900', color: '#1E293B' },
-  resumeBtn: { backgroundColor: '#22C55E', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 20, marginTop: 12 },
-  resumeText: { color: '#fff', fontSize: 18, fontWeight: '900' },
+  hornBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#EF4444', borderBottomWidth: 5, borderBottomColor: '#991B1B', alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  hornText: { fontSize: 28 },
+  // Hold-to-BOOST: the biggest thumb button, labelled so a 3-year-old
+  // can find it. Orange normally, glowing yellow while held.
+  boostBtn: { width: 84, height: 84, borderRadius: 42, backgroundColor: '#F97316', borderBottomWidth: 5, borderBottomColor: '#9A3412', alignItems: 'center', justifyContent: 'center', elevation: 5 },
+  boostBtnActive: { backgroundColor: '#EAB308', borderBottomColor: '#A16207' },
+  boostText: { fontSize: 30 },
+  boostLabel: { fontSize: 11, fontWeight: '900', color: '#fff' },
+  pauseBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center', elevation: 3 },
+  pausedOverlay: { position: 'absolute', top: '28%', left: '28%', right: '28%', backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 24, padding: 24, alignItems: 'center', elevation: 8 },
+  pausedText: { fontSize: 28, fontWeight: '900', color: '#1E293B' },
+  resumeBtn: { backgroundColor: '#22C55E', borderRadius: 18, paddingVertical: 14, paddingHorizontal: 24, marginTop: 14, borderBottomWidth: 4, borderBottomColor: '#15803D' },
+  resumeText: { color: '#fff', fontSize: 20, fontWeight: '900' },
 });

@@ -64,11 +64,23 @@ notch and gesture bar.
   level scenery (trees/hills, city buildings…), cars/stars growing
   as they come down the road. Game HUD: position (10TH → 1ST),
   LAP 1/3, timer, big MPH + speed bar, and a progress/minimap bar.
-  Left thumb joystick (◀ ▶) + right horn/pause buttons, swipe
-  steering too. Collect stars to win, dodge cones / puddles / slow
-  cars (each costs a heart — gentle, no harsh fail), balloon
-  bonuses, 3-2-1 countdown, trophy results screen with top speed
-  and race time.
+  Left thumb joystick (◀ ▶) + right horn / **hold-to-BOOST 🚀**
+  (+30% speed while held) / pause buttons, swipe steering too.
+  Collect stars to win, dodge cones / puddles / slow cars (each
+  costs a heart — gentle, no harsh fail), balloon bonuses, 3-2-1
+  countdown, trophy results screen with top speed and race time.
+- **Immersive mode** — the moment a race starts, the Android status
+  bar AND the navigation bar (footer / gesture bar) hide, so the
+  road fills the whole screen edge-to-edge with no app chrome.
+  Done in code (`src/immersive.ts` + `expo-navigation-bar`:
+  `NavigationBar.setHidden(true)` — the SDK 58 API; there is no
+  `setBehaviorAsync` in this version — plus `<StatusBar hidden>` in
+  `App.tsx` / `RaceScreen.tsx`). The
+  bars come back when the race ends (results), when you pause
+  (pause button stays in the HUD), or when you go Home. The HUD
+  uses safe-area insets only for padding — the road and scenery
+  still bleed to the edges. On Home / Results the status bar is
+  visible as normal.
 - **Pacing** — traffic moves at road speed, a new car every
   ~1–2 s (Low 2.0 s / Mid 1.5 s / High 1.05 s, faster on later
   levels), 2 cars already on the road at race start, 5 traffic colours.
@@ -99,7 +111,8 @@ on a connected Android device/emulator.
   (versions matched to `~/workspace/shubh-muhurat-app/package.json`)
 - `expo-linear-gradient`, `@react-native-async-storage/async-storage`,
   `expo-audio`, `expo-splash-screen`, `expo-status-bar`,
-  `expo-screen-orientation` (landscape lock)
+  `expo-screen-orientation` (landscape lock),
+  `expo-navigation-bar` (hide the nav bar in immersive race mode)
 - Graphics are styled Views / LinearGradient / emoji only —
   no external images.
 
@@ -112,6 +125,8 @@ src/data/levels.ts         — 5 levels (scenery, star goal, speed)
 src/data/drivers.ts        — 4 cartoon drivers (Rocky, Leo, Bella, Dash)
 src/data/skins.ts          — vehicles, 6 skins, 5 traffic colours
 src/storage.ts             — AsyncStorage profile persistence
+src/immersive.ts           — hide/show Android status + nav bars
+  (expo-navigation-bar) for immersive race mode
 src/music.ts               — looping music player (expo-audio)
 src/sfx.ts                 — horn / star / bump / win sounds
 src/components/CarView.tsx — glossy car drawn with Views (2D / 3D modes;
