@@ -6,6 +6,8 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { RaceScreen } from './src/screens/RaceScreen';
 import { ResultsScreen } from './src/screens/ResultsScreen';
@@ -28,7 +30,10 @@ export default function App() {
   const [musicOn, setMusicOn] = useState(true);
   const [sfxOn, setSfxOn] = useState(true);
 
+  // Landscape-only game: lock orientation on launch (app.json also
+  // declares "landscape"). Phone must be held sideways.
   useEffect(() => {
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     loadProfile().then(setProfile);
   }, []);
 
@@ -69,10 +74,12 @@ export default function App() {
 
   if (!profile) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFD93D' }}>
-        <ActivityIndicator size="large" color="#B91C1C" />
-        <StatusBar style="dark" />
-      </View>
+      <SafeAreaProvider>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFD93D' }}>
+          <ActivityIndicator size="large" color="#B91C1C" />
+          <StatusBar style="dark" />
+        </View>
+      </SafeAreaProvider>
     );
   }
 
@@ -81,7 +88,7 @@ export default function App() {
 
   if (screen.kind === 'race') {
     return (
-      <>
+      <SafeAreaProvider>
         <StatusBar style="dark" />
         <RaceScreen
           levelId={screen.levelId}
@@ -91,6 +98,7 @@ export default function App() {
           viewMode={screen.viewMode}
           skinColor={skin.color}
           skinAccent={skin.accent}
+          skinId={skin.id}
           musicOn={musicOn}
           sfxOn={sfxOn}
           onToggleMusic={toggleMusic}
@@ -98,14 +106,14 @@ export default function App() {
           onFinish={(r) => handleFinish(r, screen)}
           onQuit={() => { music.pause(); setScreen({ kind: 'home' }); }}
         />
-      </>
+      </SafeAreaProvider>
     );
   }
 
   if (screen.kind === 'results') {
     const { result, race } = screen;
     return (
-      <>
+      <SafeAreaProvider>
         <StatusBar style="dark" />
         <ResultsScreen
           result={result}
@@ -116,12 +124,12 @@ export default function App() {
           onRaceAgain={() => setScreen({ kind: 'race', levelId: race.levelId, difficulty: race.difficulty, vehicleId: race.vehicleId, driverId: race.driverId, viewMode: race.viewMode })}
           onHome={() => setScreen({ kind: 'home' })}
         />
-      </>
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="dark" />
       <HomeScreen
         profile={profile}
@@ -162,6 +170,6 @@ export default function App() {
           setScreen({ kind: 'race', levelId, difficulty, vehicleId, driverId: profile.selectedDriver, viewMode: profile.viewMode });
         }}
       />
-    </>
+    </SafeAreaProvider>
   );
 }

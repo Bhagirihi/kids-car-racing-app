@@ -1,9 +1,12 @@
-// Trophy results screen, personalised with the driver's name — and
-// the selected cartoon driver (in the chosen 2D / 3D look).
+// Trophy results screen — LANDSCAPE game layout.
+// Left: big driver face + trophy. Right: title, stats (stars, score,
+// top speed, time, points, trophies) and big game buttons.
+// Personalised with the driver's name and the chosen 2D / 3D look.
 
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DriverFace, DriverViewMode } from '../components/DriverFace';
 import type { Driver } from '../data/drivers';
 import { LEVELS } from '../data/levels';
@@ -23,55 +26,68 @@ export function ResultsScreen({ result, profile, driver, viewMode, onNextLevel, 
   const level = LEVELS.find((l) => l.id === result.levelId) ?? LEVELS[0];
   const name = profile.name.trim() || 'Super Driver';
   const hasNext = result.won && result.levelId < LEVELS.length;
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const time = result.timeSeconds ?? 0;
+  const mm = String(Math.floor(time / 60)).padStart(2, '0');
+  const ss = String(time % 60).padStart(2, '0');
   return (
     <LinearGradient colors={result.won ? ['#FDE68A', '#86EFAC'] : ['#BFDBFE', '#FBCFE8']} style={styles.bg}>
-      <View style={styles.card}>
-        <DriverFace driver={driver} mode={viewMode} size={96} />
-        <Text style={styles.driverLine}>{driver.faceEmoji} {driver.name} the {driver.job} — “{driver.tagline}”</Text>
-        <Text style={styles.emoji}>{result.won ? '🏆' : '💪'}</Text>
-        <Text style={styles.title}>
-          {result.won ? `Great job, ${name}!` : `Good try, ${name}!`}
-        </Text>
-        <Text style={styles.sub}>
-          {result.won
-            ? `You won ${level.name}!`
-            : `You got ${result.stars}/${level.starGoal} stars on ${level.name}. Try again!`}
-        </Text>
-        <View style={styles.rows}>
-          <Text style={styles.row}>⭐ Stars: {result.stars} / {level.starGoal}</Text>
-          <Text style={styles.row}>🏆 Score: {result.score}</Text>
-          <Text style={styles.row}>✨ Points earned: +{result.pointsEarned}</Text>
-          <Text style={styles.row}>💰 Total points: {profile.points}</Text>
-          <Text style={styles.row}>🏆 Trophies: {profile.trophies}</Text>
+      <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
+        {/* LEFT — driver + trophy */}
+        <View style={styles.left}>
+          <DriverFace driver={driver} mode={viewMode} size={110} />
+          <Text style={styles.emoji}>{result.won ? '🏆' : '💪'}</Text>
+          <Text style={styles.driverLine}>{driver.faceEmoji} {driver.name} — “{driver.tagline}”</Text>
         </View>
-        {hasNext && (
-          <TouchableOpacity style={[styles.btn, styles.nextBtn]} onPress={onNextLevel}>
-            <Text style={styles.btnText}>➡ Next Level</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity style={[styles.btn, styles.againBtn]} onPress={onRaceAgain}>
-          <Text style={styles.btnText}>🔁 Race Again</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.btn, styles.homeBtn]} onPress={onHome}>
-          <Text style={styles.btnText}>🏠 Home</Text>
-        </TouchableOpacity>
+        {/* RIGHT — title, stats, game buttons */}
+        <View style={[styles.right, { width: Math.min(480, width * 0.58) }]}>
+          <Text style={styles.title}>{result.won ? `Great job, ${name}!` : `Good try, ${name}!`}</Text>
+          <Text style={styles.sub}>
+            {result.won ? `You won ${level.name}!` : `You got ${result.stars}/${level.starGoal} stars on ${level.name}. Try again!`}
+          </Text>
+          <View style={styles.statsGrid}>
+            <Text style={styles.stat}>⭐ Stars{'\n'}{result.stars} / {level.starGoal}</Text>
+            <Text style={styles.stat}>🏆 Score{'\n'}{result.score}</Text>
+            <Text style={styles.stat}>💨 Top speed{'\n'}{result.topSpeedMph ?? 0} MPH</Text>
+            <Text style={styles.stat}>⏱️ Time{'\n'}{mm}:{ss}</Text>
+            <Text style={styles.stat}>✨ Points{'\n'}+{result.pointsEarned}</Text>
+            <Text style={styles.stat}>💰 Total{'\n'}{profile.points} • 🏆 {profile.trophies}</Text>
+          </View>
+          <View style={styles.btnRow}>
+            {hasNext && (
+              <TouchableOpacity style={[styles.btn, styles.nextBtn]} onPress={onNextLevel}>
+                <Text style={styles.btnText}>➡ Next Level</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.btn, styles.againBtn]} onPress={onRaceAgain}>
+              <Text style={styles.btnText}>🔁 Race Again</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.homeBtn]} onPress={onHome}>
+              <Text style={styles.btnText}>🏠 Home</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 24, padding: 24, width: '100%', alignItems: 'center', elevation: 4 },
-  driverLine: { fontSize: 15, fontWeight: '800', color: '#64748B', textAlign: 'center', marginTop: 8 },
-  emoji: { fontSize: 64 },
-  title: { fontSize: 26, fontWeight: '900', color: '#1E293B', textAlign: 'center', marginTop: 8 },
-  sub: { fontSize: 16, fontWeight: '700', color: '#64748B', textAlign: 'center', marginTop: 6 },
-  rows: { marginTop: 16, width: '100%', gap: 6 },
-  row: { fontSize: 18, fontWeight: '800', color: '#1E293B' },
-  btn: { borderRadius: 18, padding: 16, marginTop: 12, width: '100%' },
+  bg: { flex: 1 },
+  root: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20 },
+  left: { alignItems: 'center', width: 200 },
+  driverLine: { fontSize: 14, fontWeight: '800', color: '#475569', textAlign: 'center', marginTop: 6 },
+  emoji: { fontSize: 56 },
+  right: { justifyContent: 'center' },
+  title: { fontSize: 30, fontWeight: '900', color: '#1E293B', textAlign: 'center' },
+  sub: { fontSize: 16, fontWeight: '700', color: '#64748B', textAlign: 'center', marginTop: 4 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  stat: { width: '31%', backgroundColor: '#fff', borderRadius: 14, padding: 10, fontSize: 15, fontWeight: '900', color: '#1E293B', textAlign: 'center' },
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  btn: { flex: 1, borderRadius: 18, paddingVertical: 14, borderBottomWidth: 4, borderBottomColor: 'rgba(0,0,0,0.25)' },
   nextBtn: { backgroundColor: '#22C55E' },
   againBtn: { backgroundColor: '#F59E0B' },
   homeBtn: { backgroundColor: '#3B82F6' },
-  btnText: { color: '#fff', fontSize: 20, fontWeight: '900', textAlign: 'center' },
+  btnText: { color: '#fff', fontSize: 17, fontWeight: '900', textAlign: 'center' },
 });

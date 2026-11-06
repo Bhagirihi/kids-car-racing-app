@@ -3,7 +3,16 @@
 Fun-only racing game for children aged 3–8. **No education, no ads, no
 accounts, no network calls** — fully offline, parent-safe.
 
-## Play
+## Play — LANDSCAPE ONLY
+
+Hold the phone sideways. The app locks to landscape
+(`app.json` orientation + `expo-screen-orientation` lock in
+`App.tsx`) and every screen is laid out wide: game-menu home
+(title + PLAY on the left, drivers/levels/garage rows on the
+right), full-screen rear-view race, landscape trophy screen.
+Safe-area insets keep the HUD and thumb buttons clear of the
+notch and gesture bar.
+
 
 - **Home page** — type your driver name, see points / trophies / skins.
 - **Drivers** — 4 original cartoon animal drivers, drawn in code
@@ -37,14 +46,29 @@ accounts, no network calls** — fully offline, parent-safe.
 - **Points** — a star is 10 points, plus a win bonus that grows per
   level/difficulty. Points, trophies, unlocked levels and skins are
   saved with AsyncStorage, so they survive closing the app.
-- **Skins** — 6 paint skins bought with points and equipped.
+- **Garage** — a proper game garage, not a settings list: a grid of
+  cars (top-down, white racing stripes) + a detail panel on the
+  right for the selected car with kid-friendly stat bars — Speed /
+  Acceleration / Handling (1–5 each) — and its price in points.
+  Tap BUY CAR / EQUIP CAR in the detail panel.
+- **Skins** — 12 paint skins in the 12-colour striped palette
+  (Ruby Red, Sunny Yellow, Ocean Blue, Lime, Mint, Snow White,
+  Bubblegum Pink, Orange Blaze, Midnight Black, Silver Star,
+  Golden Cup, Rainbow Star), bought with points and equipped.
   A skin paints your car; the driver picks the vehicle and the face.
   Vehicles: Red Car 🚗, Auto Rickshaw 🛺, Blue Bus 🚌, plus the
   drivers' Police Car 🚓, Fire Truck 🚒, Ambulance 🚑, Duck Car 🦆.
-- **Race** — 3-lane scrolling road, big ◀ ▶ buttons + swipe steering,
-  collect stars to win, dodge cones / puddles / slow cars (each costs
-  a heart — gentle, no harsh fail), horn, balloon bonuses, pause,
-  sound on/off, music on/off, 3-2-1 countdown, trophy results screen.
+  Speed stat gives a tiny top-speed bonus in the race.
+- **Race (rear view)** — landscape, full-screen: your car seen from
+  behind at bottom-centre, road vanishing to the horizon with
+  level scenery (trees/hills, city buildings…), cars/stars growing
+  as they come down the road. Game HUD: position (10TH → 1ST),
+  LAP 1/3, timer, big MPH + speed bar, and a progress/minimap bar.
+  Left thumb joystick (◀ ▶) + right horn/pause buttons, swipe
+  steering too. Collect stars to win, dodge cones / puddles / slow
+  cars (each costs a heart — gentle, no harsh fail), balloon
+  bonuses, 3-2-1 countdown, trophy results screen with top speed
+  and race time.
 - **Pacing** — traffic moves at road speed, a new car every
   ~1–2 s (Low 2.0 s / Mid 1.5 s / High 1.05 s, faster on later
   levels), 2 cars already on the road at race start, 5 traffic colours.
@@ -74,7 +98,8 @@ on a connected Android device/emulator.
 - Expo SDK 58, TypeScript, React 19 / React Native 0.88
   (versions matched to `~/workspace/shubh-muhurat-app/package.json`)
 - `expo-linear-gradient`, `@react-native-async-storage/async-storage`,
-  `expo-audio`, `expo-splash-screen`, `expo-status-bar`
+  `expo-audio`, `expo-splash-screen`, `expo-status-bar`,
+  `expo-screen-orientation` (landscape lock)
 - Graphics are styled Views / LinearGradient / emoji only —
   no external images.
 
@@ -89,11 +114,12 @@ src/data/skins.ts          — vehicles, 6 skins, 5 traffic colours
 src/storage.ts             — AsyncStorage profile persistence
 src/music.ts               — looping music player (expo-audio)
 src/sfx.ts                 — horn / star / bump / win sounds
-src/components/CarView.tsx — glossy car drawn with Views (2D / 3D modes)
+src/components/CarView.tsx — glossy car drawn with Views (2D / 3D modes;
+  front, rear-view and striped top-down angles)
 src/components/DriverFace.tsx — cartoon driver face, 2D flat / 3D glossy
-src/screens/HomeScreen.tsx — name, points, drivers + 2D/3D toggle, levels, difficulty, skins shop
-src/screens/RaceScreen.tsx — game loop, traffic timer, collisions, HUD, driver in car
-src/screens/ResultsScreen.tsx — personalised trophy screen with the driver
+src/screens/HomeScreen.tsx — landscape game menu: name, points, drivers + 2D/3D toggle, levels, difficulty, garage (12 skins + stat bars)
+src/screens/RaceScreen.tsx — rear-view perspective race, game HUD (position/LAP/timer/MPH/progress), joystick + thumb buttons, traffic timer, collisions
+src/screens/ResultsScreen.tsx — landscape trophy screen: driver + trophy left, stats + game buttons right
 ```
 
 ## Not yet done

@@ -66,4 +66,8 @@ export type RaceResult = {
   pointsEarned: number;
   levelId: number;
   difficulty: DifficultyId;
+  /** Fastest speed reached in the race (MPH, shown on the HUD/results). */
+  topSpeedMph?: number;
+  /** Race time in seconds. */
+  timeSeconds?: number;
 };
