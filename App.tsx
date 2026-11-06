@@ -160,10 +160,19 @@ export default function App() {
 
   const skin = skinById(profile.equippedSkin);
   const driver = driverById(profile.selectedDriver);
-  // Paint repaints the car in the race (trial paint first, then equipped paint).
-  const paint = paintById(profile.trialPaintId || profile.equippedPaint);
   const raceVehicleId = profile.trialVehicleId || profile.selectedVehicle || driver.vehicleId;
   const raceVehicle = VEHICLES.find((v) => v.id === raceVehicleId) ?? VEHICLES[0];
+  // ONE body-colour source of truth: the race car is the DRIVER's /
+  // vehicle's own colour by default (Rocky's police car races BLUE).
+  // A paint repaints it ONLY when the player explicitly equipped one
+  // (equippedPaint '' = "vehicle colour", the default). A skin never
+  // changes the body colour — it only changes the stripe (skin.stripe)
+  // and its Speed stat.
+  const paint = profile.trialPaintId
+    ? paintById(profile.trialPaintId)
+    : profile.equippedPaint
+      ? paintById(profile.equippedPaint)
+      : { color: raceVehicle.carColor, accent: raceVehicle.carAccent, stripe: skin.stripe };
 
   const startRace = (levelId: number, difficulty: DifficultyId, vehicleId: string, extraHearts = 0) => {
     // A one-race trial replaces the equipped car for this start only.

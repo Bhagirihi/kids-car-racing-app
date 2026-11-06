@@ -81,6 +81,9 @@ export function HomeScreen(props: Props) {
   const [pickedSkin, setPickedSkin] = useState(profile.equippedSkin);
   const [shopMsg, setShopMsg] = useState(props.dailyBonus > 0 ? `🎉 Daily bonus! +${props.dailyBonus} coins!` : '');
   const [parentsOpen, setParentsOpen] = useState(false);
+  // Locked-map purchase needs a CONFIRM step: first tap selects +
+  // asks, second tap on the same card buys. No more one-tap spends.
+  const [pendingBuyLevel, setPendingBuyLevel] = useState<number | null>(null);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const compact = height < 420;
@@ -101,8 +104,13 @@ export function HomeScreen(props: Props) {
   const viewMode = profile.viewMode;
   // Race vehicle: the equipped Shop car, or the driver's vehicle when no car is equipped.
   const raceVehicle = profile.selectedVehicle ? vehicleById(profile.selectedVehicle) : vehicleById(selectedDriver.vehicleId);
-  // Paint repaints the car in the race (overrides the skin colour).
-  const paint = paintById(profile.equippedPaint);
+  // Body colour: the vehicle's own colour by default; a paint only
+  // repaints when explicitly equipped (equippedPaint '' = vehicle colour).
+  const paint = profile.equippedPaint
+    ? paintById(profile.equippedPaint)
+    : { color: raceVehicle.carColor, accent: raceVehicle.carAccent, stripe: skinById(profile.equippedSkin).stripe };
+  const skin = skinById(profile.equippedSkin);
+  // A trial replaces the equipped car/paint for one race (lobby trial).
   const driving = profile.trialVehicleId ? vehicleById(profile.trialVehicleId) : raceVehicle;
   const drivingPaint = profile.trialPaintId ? paintById(profile.trialPaintId) : paint;
   const trying = Boolean(profile.trialVehicleId || profile.trialPaintId);
@@ -192,12 +200,13 @@ export function HomeScreen(props: Props) {
                       style={[styles.gameCard, isSelected && styles.selected, !owned && styles.locked]}
                       onPress={() => {
                         if (owned) { props.onSelectDriver(d.id); setShopMsg(`${d.name} jumps in! ${d.tagline}`); }
-                        else { setShopTab('drivers'); setPanel('garage'); setShopMsg(`Get ${d.name} in the Garage!`); }
+                        else if (profile.points >= d.price) { props.onBuyDriver(d.id); setShopMsg(`${d.name} joined your team! 🎉`); }
+                        else { setShopTab('drivers'); setPanel('garage'); setShopMsg(`Get ${d.name} in the Garage! Need ${d.price - profile.points} more coins.`); }
                       }}
                     >
                       <DriverFace driver={d} mode={viewMode} size={40} />
                       <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
-                      <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to drive' : '🔒 Garage'}</Text>
+                      <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to drive' : `🪙 ${d.price} — tap to buy`}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -304,9 +313,9 @@ export function HomeScreen(props: Props) {
                       style={[styles.garageCard, isPicked && styles.selected, isEquipped && styles.equippedCard]}
                       onPress={() => setPickedVehicle(v.id)}
                     >
-                      <CarView color={v.carColor} accent={v.carAccent} emoji={v.emoji} width={44} mode={viewMode} angle="top" stripe="#FFFFFF" />
+                      <CarView color={v.carColor} accent={v.carAccent} emoji={v.emoji} width={44} mode={viewMode} angle="top" stripe="#FFFFFF" vehicleId={v.id} />
                       <Text style={styles.cardName}>{v.name}</Text>
-                      <Text style={styles.cardSub}>{isEquipped ? '✅ Equipped' : owned ? 'Owned' : v.price === 0 ? 'FREE' : `🪙 ${v.price}`}</Text>
+                      <Text style={styles.cardSub}>{isEquipped ? '✅ Equipped' : owned ? 'Owned' : v.price === 0 ? `With ${DRIVERS.find((d) => d.vehicleId === v.id)?.name ?? 'driver'}` : `🪙 ${v.price}`}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -318,22 +327,24 @@ export function HomeScreen(props: Props) {
                   const isEquipped = raceVehicle.id === v.id;
                   return (
                     <>
-                      <CarView color={paint.color} accent={paint.accent} emoji={v.emoji} width={64} mode={viewMode} angle="top" stripe={paint.stripe} />
+                      <CarView color={v.carColor} accent={v.carAccent} emoji={v.emoji} width={64} mode={viewMode} angle="top" stripe={skin.stripe} vehicleId={v.id} />
                       <Text style={styles.detailName}>{v.emoji} {v.name}</Text>
                       <StatBar label="Speed" value={v.speed} />
                       <StatBar label="Handling" value={v.handling} />
+                      <Text style={styles.cardSub}>Handling = how fast the car slides between lanes.</Text>
                       <Text style={styles.detailPrice}>{v.price === 0 ? 'FREE' : `🪙 ${v.price} coins${v.gemPrice ? ` or 💎 ${v.gemPrice}` : ''}`}</Text>
                       <TouchableOpacity
                         style={[styles.detailBtn, isEquipped && styles.detailBtnDone]}
                         onPress={() => {
+                          const driverForCar = DRIVERS.find((d) => d.vehicleId === v.id);
                           if (isEquipped) setShopMsg(v.name + ' is already equipped!');
                           else if (owned) { props.onEquipVehicle(v.id); setShopMsg(v.name + ' equipped!'); }
-                          else if (v.price === 0) setShopMsg(v.name + ' comes with its driver — pick that driver to race it!');
+                          else if (v.price === 0 && driverForCar) { props.onSelectDriver(driverForCar.id); setShopMsg(`${driverForCar.name} is racing in the ${v.name}! ${driverForCar.tagline}`); }
                           else if (profile.points >= v.price) { props.onBuyVehicle(v.id, 'coins'); setShopMsg(v.name + ' bought! 🎉'); }
                           else setShopMsg(`${NOT_ENOUGH} Need ${v.price - profile.points} more coins for ${v.name}.`);
                         }}
                       >
-                        <Text style={styles.detailBtnText}>{isEquipped ? '✅ Equipped' : owned ? 'EQUIP CAR' : 'BUY CAR'}</Text>
+                        <Text style={styles.detailBtnText}>{isEquipped ? '✅ Equipped' : owned ? 'EQUIP CAR' : v.price === 0 ? `PICK ${DRIVERS.find((d) => d.vehicleId === v.id)?.name.toUpperCase() ?? 'DRIVER'}` : 'BUY CAR'}</Text>
                       </TouchableOpacity>
                       {!owned && v.gemPrice ? (
                         <TouchableOpacity
@@ -395,7 +406,7 @@ export function HomeScreen(props: Props) {
                       style={[styles.garageCard, isPicked && styles.selected, isEquipped && styles.equippedCard]}
                       onPress={() => setPickedPaint(p.id)}
                     >
-                      <CarView color={p.color} accent={p.accent} emoji={raceVehicle.emoji} width={44} mode={viewMode} angle="top" stripe={p.stripe} />
+                      <CarView color={p.color} accent={p.accent} emoji={raceVehicle.emoji} width={44} mode={viewMode} angle="top" stripe={p.stripe} vehicleId={raceVehicle.id} />
                       <Text style={styles.cardName}>{p.name}</Text>
                       <Text style={styles.cardSub}>{isEquipped ? '✅ Equipped' : owned ? 'Owned' : p.price === 0 ? 'FREE' : `🪙 ${p.price}`}</Text>
                     </TouchableOpacity>
@@ -409,9 +420,9 @@ export function HomeScreen(props: Props) {
                   const isEquipped = profile.equippedPaint === p.id;
                   return (
                     <>
-                      <CarView color={p.color} accent={p.accent} emoji={raceVehicle.emoji} width={64} mode={viewMode} angle="top" stripe={p.stripe} />
+                      <CarView color={p.color} accent={p.accent} emoji={raceVehicle.emoji} width={84} mode={viewMode} angle="top" stripe={p.stripe} vehicleId={raceVehicle.id} />
                       <Text style={styles.detailName}>{p.emoji} {p.name}</Text>
-                      <Text style={styles.cardSub}>Repaints any car you own!</Text>
+                      <Text style={styles.cardSub}>Repaints any car you own! Start a race to see it on the road.</Text>
                       <Text style={styles.detailPrice}>{p.price === 0 ? 'FREE' : `🪙 ${p.price} coins${p.gemPrice ? ` or 💎 ${p.gemPrice}` : ''}`}</Text>
                       <TouchableOpacity
                         style={[styles.detailBtn, isEquipped && styles.detailBtnDone]}
@@ -511,7 +522,7 @@ export function HomeScreen(props: Props) {
                   </View>
                 );
               })}
-              <Text style={styles.cardSub}>Upgrades really change the race: Engine = faster, Turbo = stronger BOOST, Extra Heart = more hearts, Magnet = stars fly to you!</Text>
+              <Text style={styles.cardSub}>Upgrades really change the race: Engine = faster, Turbo Boost = stronger BOOST, Extra Heart = more hearts, Magnet = stars fly to you! Speed ramps up from the start of every race — Turbo only makes BOOST stronger.</Text>
             </View>
           )}
 
@@ -528,7 +539,7 @@ export function HomeScreen(props: Props) {
                       style={[styles.garageCard, isPicked && styles.selected, isEquipped && styles.equippedCard]}
                       onPress={() => setPickedSkin(s.id)}
                     >
-                      <CarView color={s.color} accent={s.accent} emoji={selectedDriver.vehicleEmoji} width={44} mode={viewMode} angle="top" stripe={s.stripe} />
+                      <CarView color={raceVehicle.carColor} accent={raceVehicle.carAccent} emoji={selectedDriver.vehicleEmoji} width={44} mode={viewMode} angle="top" stripe={s.stripe} vehicleId={raceVehicle.id} />
                       <Text style={styles.cardName}>{s.name}</Text>
                       <Text style={styles.cardSub}>{isEquipped ? '✅ Equipped' : owned ? 'Owned' : `🪙 ${s.price}`}</Text>
                     </TouchableOpacity>
@@ -542,11 +553,13 @@ export function HomeScreen(props: Props) {
                   const isEquipped = profile.equippedSkin === s.id;
                   return (
                     <>
-                      <CarView color={s.color} accent={s.accent} emoji={selectedDriver.vehicleEmoji} width={64} mode={viewMode} angle="top" stripe={s.stripe} />
+                      <CarView color={raceVehicle.carColor} accent={raceVehicle.carAccent} emoji={selectedDriver.vehicleEmoji} width={64} mode={viewMode} angle="top" stripe={s.stripe} vehicleId={raceVehicle.id} />
                       <Text style={styles.detailName}>{s.emoji} {s.name}</Text>
+                      <Text style={styles.cardSub}>A skin is a stripe + speed kit — it never changes your car's body colour. Paint does that.</Text>
                       <StatBar label="Speed" value={s.speed} />
                       <StatBar label="Acceleration" value={s.acceleration} />
                       <StatBar label="Handling" value={s.handling} />
+                      <Text style={styles.cardSub}>Handling = how fast the car slides between lanes.</Text>
                       <Text style={styles.detailPrice}>{s.price === 0 ? 'FREE' : `🪙 ${s.price} coins`}</Text>
                       <TouchableOpacity
                         style={[styles.detailBtn, isEquipped && styles.detailBtnDone]}
@@ -576,15 +589,17 @@ export function HomeScreen(props: Props) {
                     key={lv.id}
                     style={[styles.shopCard, selected && styles.selected, !unlocked && styles.locked]}
                     onPress={() => {
-                      if (unlocked) { setLevelId(lv.id); setShopMsg(lv.name + ' selected! ' + lv.tagline); }
-                      else if (profile.points >= lv.price) { props.onBuyLevel(lv.id, 'coins'); setLevelId(lv.id); setShopMsg(lv.name + ' unlocked! 🎉'); }
+                      if (unlocked) { setLevelId(lv.id); setPendingBuyLevel(null); setShopMsg(lv.name + ' selected! ' + lv.tagline); return; }
+                      if (pendingBuyLevel !== lv.id) { setPendingBuyLevel(lv.id); setShopMsg(`Tap ${lv.name} again to buy it for 🪙 ${lv.price} — or pick another map.`); return; }
+                      setPendingBuyLevel(null);
+                      if (profile.points >= lv.price) { props.onBuyLevel(lv.id, 'coins'); setLevelId(lv.id); setShopMsg(lv.name + ' unlocked! 🎉'); }
                       else if (lv.gemPrice && profile.gems >= lv.gemPrice) { props.onBuyLevel(lv.id, 'gems'); setLevelId(lv.id); setShopMsg(lv.name + ' unlocked with gems! 💎🎉'); }
                       else setShopMsg(`${NOT_ENOUGH} Need ${lv.price - profile.points} more coins for ${lv.name}.`);
                     }}
                   >
-                    <Text style={styles.levelIcon}>{unlocked ? lv.icon : '🔒'}</Text>
+                    <Text style={styles.levelIcon}>{unlocked ? lv.icon : `${lv.icon} 🔒`}</Text>
                     <Text style={styles.cardName}>{lv.name}</Text>
-                    <Text style={styles.cardSub}>{unlocked ? `⭐ ${lv.starGoal} stars` : `🪙 ${lv.price}${lv.gemPrice ? ` or 💎 ${lv.gemPrice}` : ''}`}</Text>
+                    <Text style={styles.cardSub}>{unlocked ? `⭐ ${lv.starGoal} stars` : pendingBuyLevel === lv.id ? '👆 Tap again to buy!' : `🪙 ${lv.price}${lv.gemPrice ? ` or 💎 ${lv.gemPrice}` : ''}`}</Text>
                     <Text style={styles.cardSub}>{lv.tagline}</Text>
                   </TouchableOpacity>
                 );

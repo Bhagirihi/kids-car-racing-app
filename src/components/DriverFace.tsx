@@ -98,7 +98,7 @@ export const DriverFace = React.memo(function DriverFace({ driver, mode, size = 
   return (
     <View style={[styles.wrap, { width: S, height: S * 1.04 }, is3d && styles.wrap3d]}>
       {/* soft drop shadow under the face (3D only) */}
-      {is3d && <View style={[styles.dropShadow, { width: S * 0.72, height: S * 0.1, bottom: -S * 0.02 }]} />}
+      {is3d && <View style={[styles.dropShadow, { width: S * 0.6, height: S * 0.05, bottom: S * 0.01 }]} />}
       {/* mane behind the face (Leo) */}
       {driver.mane && (
         <View style={[styles.mane, { width: S * 0.98, height: S * 0.98, backgroundColor: driver.mane, top: S * 0.02 }]} />
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   // 3D: slight tilt + lift, like the close-up art.
   wrap3d: { transform: [{ rotate: '-3deg' }] },
   dropShadow: {
-    position: 'absolute', alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.18)',
+    position: 'absolute', alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.10)',
     borderRadius: 999, zIndex: 0,
   },
   mane: { position: 'absolute', borderRadius: 999, zIndex: 0 },

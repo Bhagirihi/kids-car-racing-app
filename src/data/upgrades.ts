@@ -34,7 +34,9 @@ export const UPGRADES: UpgradeDef[] = [
   },
   {
     id: 'turbo', name: 'Turbo Boost', emoji: '🚀', tagline: 'Stronger BOOST!',
-    statLabel: 'Acceleration',
+    // Was labelled "Acceleration" while only strengthening boost —
+    // renamed, and speed now really ramps up (see RaceScreen).
+    statLabel: 'Boost Power',
     maxLevel: 5, costs: [150, 300, 500, 750, 1000], gemInstantCost: 40,
     effect: '+6% BOOST power per level',
   },

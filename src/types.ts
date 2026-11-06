@@ -98,7 +98,9 @@ export const DEFAULT_PROFILE: Profile = {
   ownedVehicles: ['car'],
   selectedVehicle: '',
   ownedPaints: ['cherry'],
-  equippedPaint: 'cherry',
+  // '' = vehicle colour (the default): the car races in its own
+  // colour until the player explicitly equips a paint.
+  equippedPaint: '',
   upgrades: { ...DEFAULT_UPGRADES },
   bestScore: 0,
   selectedDriver: 'rocky',

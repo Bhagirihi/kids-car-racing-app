@@ -24,7 +24,10 @@ function migrate(parsed: Partial<Profile>): Profile {
     ownedVehicles: parsed.ownedVehicles ?? [...DEFAULT_PROFILE.ownedVehicles],
     selectedVehicle: parsed.selectedVehicle ?? '',
     ownedPaints: parsed.ownedPaints ?? [...DEFAULT_PROFILE.ownedPaints],
-    equippedPaint: parsed.equippedPaint ?? 'cherry',
+    // 'cherry' was the old default paint (never an explicit choice):
+    // migrate it to '' = vehicle colour, so Rocky's police car stops
+    // racing cherry red. A player who really wants cherry still owns it.
+    equippedPaint: parsed.equippedPaint && parsed.equippedPaint !== 'cherry' ? parsed.equippedPaint : '',
     upgrades: { ...DEFAULT_PROFILE.upgrades, ...(parsed.upgrades ?? {}) },
     unlockAll: parsed.unlockAll ?? false,
     adFree: parsed.adFree ?? false,
