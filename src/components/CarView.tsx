@@ -27,7 +27,7 @@ interface Props {
   stripe?: string;
 }
 
-export function CarView({ color, accent, emoji, width = 76, flashing, mode = '2d', angle = 'front', stripe = '#FFFFFF' }: Props) {
+export const CarView = React.memo(function CarView({ color, accent, emoji, width = 76, flashing, mode = '2d', angle = 'front', stripe = '#FFFFFF' }: Props) {
   const is3d = mode === '3d';
 
   if (angle === 'rear') {
@@ -106,7 +106,7 @@ export function CarView({ color, accent, emoji, width = 76, flashing, mode = '2d
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   car: { position: 'relative', alignItems: 'center' },

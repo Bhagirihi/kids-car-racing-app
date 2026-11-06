@@ -10,9 +10,9 @@
 // until they are bought or unlocked by winning. Real-money purchases
 // live ONLY in the parent-gated Parents Shop (see ParentsShop.tsx).
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -63,20 +63,39 @@ interface Props {
 
 const NOT_ENOUGH = 'Not enough coins — play more races or ask a parent.';
 
+const DIFF_KID: Record<DifficultyId, { label: string; face: string }> = {
+  low: { label: 'Easy', face: '🐢' },
+  mid: { label: 'Super', face: '😄' },
+  high: { label: 'Turbo', face: '🚀' },
+};
+
 export function HomeScreen(props: Props) {
   const { profile } = props;
   const [name, setName] = useState(profile.name);
-  const [levelId, setLevelId] = useState(1);
+  const [levelId, setLevelId] = useState(() => Math.min(LEVELS.length, Math.max(1, profile.unlockedLevel)));
   const [difficulty, setDifficulty] = useState<DifficultyId>('low');
+  const [panel, setPanel] = useState<'tracks' | 'garage'>('tracks');
   const [shopTab, setShopTab] = useState<ShopTab>('cars');
-  const [pickedVehicle, setPickedVehicle] = useState(profile.selectedVehicle || 'car');
+  const [pickedVehicle, setPickedVehicle] = useState(profile.selectedVehicle || driverById(profile.selectedDriver).vehicleId);
   const [pickedPaint, setPickedPaint] = useState(profile.equippedPaint);
   const [pickedSkin, setPickedSkin] = useState(profile.equippedSkin);
   const [shopMsg, setShopMsg] = useState(props.dailyBonus > 0 ? `🎉 Daily bonus! +${props.dailyBonus} coins!` : '');
   const [parentsOpen, setParentsOpen] = useState(false);
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const leftW = Math.max(250, Math.min(320, width * 0.36));
+  const { width, height } = useWindowDimensions();
+  const compact = height < 420;
+  const leftW = Math.max(240, Math.min(340, width * 0.38));
+  const bob = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, { toValue: -6, duration: 620, useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 0, duration: 620, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [bob]);
 
   const selectedDriver = driverById(profile.selectedDriver);
   const viewMode = profile.viewMode;
@@ -84,7 +103,9 @@ export function HomeScreen(props: Props) {
   const raceVehicle = profile.selectedVehicle ? vehicleById(profile.selectedVehicle) : vehicleById(selectedDriver.vehicleId);
   // Paint repaints the car in the race (overrides the skin colour).
   const paint = paintById(profile.equippedPaint);
-  const skin = skinById(profile.equippedSkin);
+  const driving = profile.trialVehicleId ? vehicleById(profile.trialVehicleId) : raceVehicle;
+  const drivingPaint = profile.trialPaintId ? paintById(profile.trialPaintId) : paint;
+  const trying = Boolean(profile.trialVehicleId || profile.trialPaintId);
   const unlockedMaps = LEVELS.filter((lv) => isLevelUnlocked(lv.id, profile.unlockedLevel, profile.purchasedLevels, profile.unlockAll)).length;
 
   const tabs: { id: ShopTab; label: string }[] = [
@@ -101,13 +122,10 @@ export function HomeScreen(props: Props) {
       <View style={[styles.root, { paddingTop: insets.top + 6, paddingBottom: insets.bottom + 6, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }]}>
         {/* LEFT — hero + PLAY (game menu, not an app header) */}
         <View style={[styles.left, { width: leftW }]}>
-          <Text style={styles.title}>🏁 KIDS CAR</Text>
-          <Text style={styles.title2}>RACING 🏎️</Text>
-          <Text style={styles.tagline}>Fun-only racing • Ages 3–8 • No ads</Text>
-
+          <Text style={[styles.title, compact && { fontSize: 32 }]}>🏁 RACE!</Text>
           <TextInput
             style={styles.nameInput}
-            placeholder="Your driver name…"
+            placeholder="Your name"
             placeholderTextColor="#94A3B8"
             value={name}
             maxLength={14}
@@ -117,18 +135,32 @@ export function HomeScreen(props: Props) {
             onSubmitEditing={() => props.onSaveName(name.trim())}
           />
           <View style={styles.badges}>
-            <Text style={styles.badge}>🪙 {profile.points} Coins</Text>
-            <Text style={styles.badge}>💎 {profile.gems} Gems</Text>
+            <Text style={styles.badge}>🪙 {profile.points}</Text>
+            <Text style={styles.badge}>💎 {profile.gems}</Text>
             <Text style={styles.badge}>🏆 {profile.trophies}</Text>
-            <Text style={styles.badge}>🚗 {profile.ownedVehicles.length}/12</Text>
             <Text style={styles.badge}>🗺️ {unlockedMaps}/10</Text>
           </View>
 
-          <TouchableOpacity style={styles.playBtn} onPress={() => props.onPlay(levelId, difficulty, raceVehicle.id)}>
-            <Text style={styles.playText}>▶  START RACE</Text>
+          <View style={styles.heroSlot}>
+            <Animated.View style={[styles.hero, { transform: [{ translateY: bob }] }]}>
+              <DriverFace driver={selectedDriver} mode={viewMode} size={compact ? 52 : 68} />
+              <CarView color={drivingPaint.color} accent={drivingPaint.accent} emoji={driving.emoji} width={compact ? 96 : 118} mode={viewMode} stripe={drivingPaint.stripe} />
+            </Animated.View>
+          </View>
+
+          {trying ? <Text style={styles.trialChip}>🎁 One race in the {driving.name}!</Text> : null}
+
+          <TouchableOpacity
+            style={styles.playBtn}
+            onPress={() => {
+              props.onSaveName(name.trim());
+              props.onPlay(levelId, difficulty, driving.id);
+            }}
+          >
+            <Text style={[styles.playText, compact && { fontSize: 26 }]}>▶  RACE!</Text>
           </TouchableOpacity>
-          <Text style={styles.racingNow}>
-            {selectedDriver.faceEmoji} {selectedDriver.name} • {raceVehicle.emoji} {raceVehicle.name} • {LEVELS[levelId - 1].icon} {LEVELS[levelId - 1].name} • {DIFFICULTIES[difficulty].label}
+          <Text style={styles.racingNow} numberOfLines={1}>
+            {selectedDriver.faceEmoji} {selectedDriver.name}  •  {LEVELS[levelId - 1].icon} {LEVELS[levelId - 1].name}  •  {DIFF_KID[difficulty].face} {DIFF_KID[difficulty].label}
           </Text>
           <View style={styles.toggleRow}>
             <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleMusic}>
@@ -137,99 +169,103 @@ export function HomeScreen(props: Props) {
             <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleSfx}>
               <Text style={styles.roundText}>{props.sfxOn ? '🔊' : '🔇'}</Text>
             </TouchableOpacity>
-            <Text style={styles.parentNote}>Offline • No ads • No chat</Text>
+            <TouchableOpacity style={styles.parentsBtn} onPress={() => setParentsOpen(true)}>
+              <Text style={styles.parentsBtnText}>👨‍👩‍👧 Parents</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.parentsBtn} onPress={() => setParentsOpen(true)}>
-            <Text style={styles.parentsBtnText}>👨‍👩‍👧 For Parents</Text>
-          </TouchableOpacity>
-          {profile.unlockAll ? <Text style={styles.unlockAllBadge}>🏆 Unlock All owned!</Text> : null}
         </View>
 
         {/* RIGHT — game rows: drivers, levels, difficulty, SHOP */}
         <ScrollView style={styles.right} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
           {shopMsg ? <Text style={styles.shopMsg}>{shopMsg}</Text> : null}
 
-          <View style={styles.rowHeader}>
-            <Text style={styles.section}>🐶 Pick your driver</Text>
-            <View style={styles.viewToggle}>
-              {(['2d', '3d'] as DriverViewMode[]).map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  onPress={() => props.onToggleViewMode(m)}
-                  style={[styles.viewBtn, viewMode === m && styles.viewBtnSelected]}
-                >
-                  <Text style={[styles.viewBtnText, viewMode === m && styles.viewBtnTextSelected]}>{m.toUpperCase()}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
-            {DRIVERS.map((d) => {
-              const owned = profile.ownedDrivers.includes(d.id);
-              const isSelected = profile.selectedDriver === d.id;
-              return (
-                <TouchableOpacity
-                  key={d.id}
-                  style={[styles.gameCard, isSelected && styles.selected]}
-                  onPress={() => {
-                    if (owned) { props.onSelectDriver(d.id); setShopMsg(`${d.name} is racing! ${d.tagline}`); }
-                    else if (profile.points >= d.price) { props.onBuyDriver(d.id); setShopMsg(`${d.name} joined your team! 🎉`); }
-                    else setShopMsg(`${NOT_ENOUGH} Need ${d.price - profile.points} more coins for ${d.name}.`);
-                  }}
-                >
-                  <DriverFace driver={d} mode={viewMode} size={62} />
-                  <CarView color={d.carColor} accent={d.carAccent} emoji={d.vehicleEmoji} width={56} mode={viewMode} />
-                  <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
-                  <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to pick' : d.price === 0 ? 'FREE' : `🪙 ${d.price}`}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+          {panel === 'tracks' ? (
+            <>
+              <Text style={styles.section}>🐶 Who's driving?</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
+                {DRIVERS.map((d) => {
+                  const owned = profile.ownedDrivers.includes(d.id);
+                  const isSelected = profile.selectedDriver === d.id;
+                  return (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={[styles.gameCard, isSelected && styles.selected, !owned && styles.locked]}
+                      onPress={() => {
+                        if (owned) { props.onSelectDriver(d.id); setShopMsg(`${d.name} jumps in! ${d.tagline}`); }
+                        else { setShopTab('drivers'); setPanel('garage'); setShopMsg(`Get ${d.name} in the Garage!`); }
+                      }}
+                    >
+                      <DriverFace driver={d} mode={viewMode} size={40} />
+                      <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
+                      <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to drive' : '🔒 Garage'}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
 
-          <Text style={styles.section}>🗺️ Pick a map</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
-            {LEVELS.map((lv) => {
-              const locked = !isLevelUnlocked(lv.id, profile.unlockedLevel, profile.purchasedLevels, profile.unlockAll);
-              const selected = lv.id === levelId;
-              return (
-                <TouchableOpacity
-                  key={lv.id}
-                  onPress={() => {
-                    if (!locked) setLevelId(lv.id);
-                    else if (profile.points >= lv.price) { props.onBuyLevel(lv.id, 'coins'); setLevelId(lv.id); setShopMsg(`${lv.name} unlocked! 🎉`); }
-                    else if (lv.gemPrice && profile.gems >= lv.gemPrice) { props.onBuyLevel(lv.id, 'gems'); setLevelId(lv.id); setShopMsg(`${lv.name} unlocked with gems! 💎🎉`); }
-                    else setShopMsg(`${NOT_ENOUGH} Need ${lv.price - profile.points} more coins for ${lv.name}.`);
-                  }}
-                  style={[styles.gameCard, styles.levelCard, selected && styles.selected, locked && styles.locked]}
-                >
-                  <Text style={styles.levelIcon}>{locked ? '🔒' : lv.icon}</Text>
-                  <Text style={styles.cardName}>{lv.name}</Text>
-                  <Text style={styles.cardSub}>{locked ? `🪙 ${lv.price}${lv.gemPrice ? ` or 💎 ${lv.gemPrice}` : ''}` : `⭐ ${lv.starGoal} stars`}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+              <Text style={styles.section}>🗺️ Which track?</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
+                {LEVELS.map((lv) => {
+                  const locked = !isLevelUnlocked(lv.id, profile.unlockedLevel, profile.purchasedLevels, profile.unlockAll);
+                  const selected = lv.id === levelId;
+                  return (
+                    <TouchableOpacity
+                      key={lv.id}
+                      onPress={() => {
+                        if (!locked) { setLevelId(lv.id); setShopMsg(lv.tagline); }
+                        else { setShopTab('maps'); setPanel('garage'); setShopMsg(`${lv.name} is locked. Win the track before it, or unlock it here.`); }
+                      }}
+                      style={[styles.gameCard, styles.levelCard, selected && styles.selected, locked && styles.locked]}
+                    >
+                      <Text style={styles.levelIcon}>{locked ? '🔒' : lv.icon}</Text>
+                      <Text style={styles.cardName}>{lv.name}</Text>
+                      <Text style={styles.cardSub}>{locked ? 'Locked' : `⭐ ${lv.starGoal}`}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
 
-          <Text style={styles.section}>💪 How hard?</Text>
-          <View style={styles.hRow}>
-            {DIFFICULTY_ORDER.map((id) => {
-              const d = DIFFICULTIES[id];
-              return (
-                <TouchableOpacity
-                  key={id}
-                  onPress={() => setDifficulty(id)}
-                  style={[styles.diffBtn, difficulty === id && styles.selected]}
-                >
-                  <Text style={styles.diffLabel}>{d.label} • ❤️ {d.hearts}</Text>
-                  <Text style={styles.cardSub}>+{d.winBonus} win bonus</Text>
+              <Text style={styles.section}>💨 How fast?</Text>
+              <View style={styles.hRow}>
+                {DIFFICULTY_ORDER.map((id) => {
+                  const d = DIFFICULTIES[id];
+                  const kid = DIFF_KID[id];
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      onPress={() => setDifficulty(id)}
+                      style={[styles.diffBtn, difficulty === id && styles.selected]}
+                    >
+                      <Text style={styles.diffLabel}>{kid.face} {kid.label}</Text>
+                      <Text style={styles.cardSub}>❤️ {d.hearts}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity style={styles.garageLaunch} onPress={() => { setShopTab('cars'); setPanel('garage'); }}>
+                  <Text style={styles.garageLaunchText}>🛠️ Garage</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* SHOP — tabs: Cars, Paint, Upgrades, Skins, Maps, Drivers */}
-          <Text style={styles.section}>🛍️ Shop — spend your coins!</Text>
-          {!profile.adFree && (
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.garageBar}>
+                <TouchableOpacity style={styles.backBtn} onPress={() => setPanel('tracks')}>
+                  <Text style={styles.backBtnText}>◀ TRACKS</Text>
+                </TouchableOpacity>
+                <Text style={styles.garageTitle}>🛠️ Garage</Text>
+                <View style={styles.viewToggle}>
+                  {(['2d', '3d'] as DriverViewMode[]).map((m) => (
+                    <TouchableOpacity
+                      key={m}
+                      onPress={() => props.onToggleViewMode(m)}
+                      style={[styles.viewBtn, viewMode === m && styles.viewBtnSelected]}
+                    >
+                      <Text style={[styles.viewBtnText, viewMode === m && styles.viewBtnTextSelected]}>{m === '2d' ? 'Cartoon' : 'Shiny'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+          {!profile.adFree && isAdsConfigured && (
             <TouchableOpacity
               style={styles.earnGemsBtn}
               onPress={async () => {
@@ -312,24 +348,32 @@ export function HomeScreen(props: Props) {
                         </TouchableOpacity>
                       ) : null}
                       {!owned && v.price > 0 ? (
-                        <TouchableOpacity
-                          style={[styles.detailBtn, styles.tryBtn]}
-                          onPress={async () => {
-                            if (profile.gems >= 5) {
+                        <>
+                          <TouchableOpacity
+                            style={[styles.detailBtn, styles.tryBtn]}
+                            onPress={async () => {
+                              if (profile.gems < 5) { setShopMsg('Need 5 gems to try this car for one race.'); return; }
                               const r = await props.onTrialVehicle(v.id, 'gems');
-                              if (r === 'earned') setShopMsg(v.name + ' trial ready for your next race! 💎 (5 gems)');
-                              return;
-                            }
-                            if (!isAdsConfigured) { setShopMsg('Ads are not set up yet — the trial needs 5 gems instead.'); return; }
-                            const r = await props.onTrialVehicle(v.id, 'ad');
-                            if (r === 'earned') setShopMsg(v.name + ' trial ready for your next race! Start a race to try it!');
-                            else if (r === 'not-configured') setShopMsg('Ads are not set up yet — the trial needs 5 gems instead.');
-                            else if (r === 'cancelled') setShopMsg('Ad closed early — no trial this time.');
-                            else setShopMsg('The ad could not load — no trial this time.');
-                          }}
-                        >
-                          <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 📺 ad or 💎 5</Text>
-                        </TouchableOpacity>
+                              if (r === 'earned') { setPanel('tracks'); setShopMsg(v.name + ' is ready! Tap RACE for one try.'); }
+                              else setShopMsg('Could not start the try. Your gems are safe.');
+                            }}
+                          >
+                            <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 💎 5</Text>
+                          </TouchableOpacity>
+                          {isAdsConfigured && !profile.adFree ? (
+                            <TouchableOpacity
+                              style={[styles.detailBtn, styles.gemBtn]}
+                              onPress={async () => {
+                                const r = await props.onTrialVehicle(v.id, 'ad');
+                                if (r === 'earned') { setPanel('tracks'); setShopMsg(v.name + ' is ready! Tap RACE for one try.'); }
+                                else if (r === 'cancelled') setShopMsg('Ad closed early — no try this time.');
+                                else setShopMsg('The ad could not load — no try this time.');
+                              }}
+                            >
+                              <Text style={styles.detailBtnText}>📺 TRY — watch an ad</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </>
                       ) : null}
                     </>
                   );
@@ -393,24 +437,32 @@ export function HomeScreen(props: Props) {
                         </TouchableOpacity>
                       ) : null}
                       {!owned && p.price > 0 ? (
-                        <TouchableOpacity
-                          style={[styles.detailBtn, styles.tryBtn]}
-                          onPress={async () => {
-                            if (profile.gems >= 5) {
+                        <>
+                          <TouchableOpacity
+                            style={[styles.detailBtn, styles.tryBtn]}
+                            onPress={async () => {
+                              if (profile.gems < 5) { setShopMsg('Need 5 gems to try this paint for one race.'); return; }
                               const r = await props.onTrialPaint(p.id, 'gems');
-                              if (r === 'earned') setShopMsg(p.name + ' trial ready for your next race! 💎 (5 gems)');
-                              return;
-                            }
-                            if (!isAdsConfigured) { setShopMsg('Ads are not set up yet — the trial needs 5 gems instead.'); return; }
-                            const r = await props.onTrialPaint(p.id, 'ad');
-                            if (r === 'earned') setShopMsg(p.name + ' trial ready for your next race! Start a race to try it!');
-                            else if (r === 'not-configured') setShopMsg('Ads are not set up yet — the trial needs 5 gems instead.');
-                            else if (r === 'cancelled') setShopMsg('Ad closed early — no trial this time.');
-                            else setShopMsg('The ad could not load — no trial this time.');
-                          }}
-                        >
-                          <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 📺 ad or 💎 5</Text>
-                        </TouchableOpacity>
+                              if (r === 'earned') { setPanel('tracks'); setShopMsg(p.name + ' is ready! Tap RACE for one try.'); }
+                              else setShopMsg('Could not start the try. Your gems are safe.');
+                            }}
+                          >
+                            <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 💎 5</Text>
+                          </TouchableOpacity>
+                          {isAdsConfigured && !profile.adFree ? (
+                            <TouchableOpacity
+                              style={[styles.detailBtn, styles.gemBtn]}
+                              onPress={async () => {
+                                const r = await props.onTrialPaint(p.id, 'ad');
+                                if (r === 'earned') { setPanel('tracks'); setShopMsg(p.name + ' is ready! Tap RACE for one try.'); }
+                                else if (r === 'cancelled') setShopMsg('Ad closed early — no try this time.');
+                                else setShopMsg('The ad could not load — no try this time.');
+                              }}
+                            >
+                              <Text style={styles.detailBtnText}>📺 TRY — watch an ad</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </>
                       ) : null}
                     </>
                   );
@@ -564,6 +616,8 @@ export function HomeScreen(props: Props) {
               })}
             </View>
           )}
+            </>
+          )}
         </ScrollView>
       </View>
 
@@ -600,40 +654,49 @@ function StatBar({ label, value }: { label: string; value: number }) {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   root: { flex: 1, flexDirection: 'row', gap: 12 },
-  left: { justifyContent: 'center', gap: 6 },
-  title: { fontSize: 42, fontWeight: '900', color: '#B91C1C', textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 3, height: 3 }, textShadowRadius: 0 },
+  left: { justifyContent: 'flex-start', gap: 4 },
+  title: { fontSize: 40, fontWeight: '900', color: '#B91C1C', textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 3, height: 3 }, textShadowRadius: 0 },
+  heroSlot: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 72 },
+  hero: { alignItems: 'center' },
+  trialChip: { textAlign: 'center', fontWeight: '900', color: '#7C2D12', backgroundColor: '#FEF3C7', borderRadius: 999, overflow: 'hidden', paddingVertical: 4, paddingHorizontal: 10, fontSize: 12 },
+  garageLaunch: { flex: 1.1, backgroundColor: '#F97316', borderRadius: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 4, borderBottomColor: '#9A3412', elevation: 4 },
+  garageLaunchText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+  garageBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  backBtn: { backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 3, borderBottomColor: '#15803D' },
+  backBtnText: { color: '#fff', fontWeight: '900', fontSize: 14 },
+  garageTitle: { fontSize: 20, fontWeight: '900', color: '#1E293B', flex: 1 },
   title2: { fontSize: 42, fontWeight: '900', color: '#1E40AF', textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 3, height: 3 }, textShadowRadius: 0 },
   tagline: { fontWeight: '800', color: '#334155', fontSize: 14 },
-  nameInput: { borderWidth: 3, borderColor: '#FACC15', borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, fontSize: 18, fontWeight: '800', color: '#1E293B', backgroundColor: '#FEFCE8' },
+  nameInput: { borderWidth: 3, borderColor: '#FACC15', borderRadius: 14, paddingVertical: 6, paddingHorizontal: 12, fontSize: 16, fontWeight: '800', color: '#1E293B', backgroundColor: '#FEFCE8', textAlign: 'center' },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   badge: { backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, fontWeight: '900', color: '#1E293B', fontSize: 15, elevation: 2 },
-  playBtn: { backgroundColor: '#22C55E', borderRadius: 24, paddingVertical: 18, marginTop: 8, borderBottomWidth: 6, borderBottomColor: '#15803D', elevation: 6 },
-  playText: { color: '#fff', fontSize: 28, fontWeight: '900', textAlign: 'center' },
+  playBtn: { backgroundColor: '#22C55E', borderRadius: 24, paddingVertical: 14, borderBottomWidth: 6, borderBottomColor: '#15803D', elevation: 6 },
+  playText: { color: '#fff', fontSize: 30, fontWeight: '900', textAlign: 'center' },
   racingNow: { textAlign: 'center', fontWeight: '800', color: '#1E293B', fontSize: 13 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   roundBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center', elevation: 2 },
   roundText: { fontSize: 21 },
   parentNote: { fontWeight: '700', color: '#475569', fontSize: 12 },
-  parentsBtn: { backgroundColor: '#E0E7FF', borderRadius: 14, paddingVertical: 9, marginTop: 6, alignItems: 'center', borderWidth: 2, borderColor: '#6366F1' },
-  parentsBtnText: { fontWeight: '900', color: '#3730A3', fontSize: 14 },
+  parentsBtn: { backgroundColor: '#E0E7FF', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, alignItems: 'center', borderWidth: 2, borderColor: '#6366F1' },
+  parentsBtnText: { fontWeight: '900', color: '#3730A3', fontSize: 13 },
   unlockAllBadge: { textAlign: 'center', fontWeight: '900', color: '#B45309', fontSize: 13 },
   right: { flex: 1 },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  section: { fontSize: 18, fontWeight: '900', color: '#1E293B', marginTop: 10, marginBottom: 8, backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 999, paddingVertical: 5, paddingHorizontal: 14, alignSelf: 'flex-start', elevation: 2 },
+  section: { fontSize: 15, fontWeight: '900', color: '#1E293B', marginTop: 2, marginBottom: 2, backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 10, alignSelf: 'flex-start', elevation: 2 },
   viewToggle: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 12, padding: 3, gap: 3 },
   viewBtn: { borderRadius: 9, paddingVertical: 5, paddingHorizontal: 12 },
   viewBtnSelected: { backgroundColor: '#2563EB' },
   viewBtnText: { fontWeight: '900', color: '#475569', fontSize: 14 },
   viewBtnTextSelected: { color: '#fff' },
   hRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
-  gameCard: { width: 140, backgroundColor: '#fff', borderRadius: 18, padding: 10, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
-  levelCard: { width: 136 },
+  gameCard: { width: 108, backgroundColor: '#fff', borderRadius: 16, paddingVertical: 3, paddingHorizontal: 6, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
+  levelCard: { width: 100 },
   selected: { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' },
   locked: { opacity: 0.55 },
-  levelIcon: { fontSize: 30 },
+  levelIcon: { fontSize: 26 },
   cardName: { fontWeight: '900', textAlign: 'center', color: '#1E293B', fontSize: 14, marginTop: 2 },
   cardSub: { textAlign: 'center', color: '#64748B', fontWeight: '700', fontSize: 12 },
-  diffBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 12, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
+  diffBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 8, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
   diffLabel: { fontSize: 15, fontWeight: '900', color: '#1E293B' },
   shopMsg: { textAlign: 'center', fontWeight: '800', color: '#B45309', marginBottom: 4 },
   tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },

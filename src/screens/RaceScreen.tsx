@@ -26,13 +26,94 @@ import type { Driver } from '../data/drivers';
 import { LEVELS, STAR_POINTS } from '../data/levels';
 import { TRAFFIC_COLORS, vehicleById, skinById } from '../data/skins';
 import { music } from '../music';
-import { isSfxEnabled, playSfx } from '../sfx';
+import { playSfx } from '../sfx';
 import { DIFFICULTIES, DifficultyId, RaceResult, UpgradesState } from '../types';
 
 type Kind = 'star' | 'traffic' | 'cone' | 'puddle' | 'balloon';
 interface Entity { id: number; kind: Kind; lane: number; y: number; color?: string; xShift?: number }
 
-const TICK_MS = 30;
+const TICK_MS = 32;
+
+function placeLabel(n: number): string {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}TH`;
+  switch (n % 10) {
+    case 1: return `${n}ST`;
+    case 2: return `${n}ND`;
+    case 3: return `${n}RD`;
+    default: return `${n}TH`;
+  }
+}
+
+function heartLine(n: number): string {
+  if (n <= 0) return '💔';
+  if (n <= 5) return '❤️'.repeat(n);
+  return `❤️ ×${n}`;
+}
+
+/** Asphalt drawn as thin slices so the edges match the lane math on
+ *  web and native. A single CSS border-trapezoid collapses into a
+ *  triangle once the side borders are wider than the view. */
+const RoadSurface = React.memo(function RoadSurface(props: {
+  width: number;
+  height: number;
+  horizon: number;
+  topW: number;
+  botW: number;
+  color: string;
+}) {
+  const roadH = Math.max(1, props.height - props.horizon);
+  const stripH = 3;
+  const count = Math.ceil(roadH / stripH);
+  const halfAt = (y: number) => {
+    const t = Math.max(0, Math.min(1, (y - props.horizon) / roadH));
+    return props.topW / 2 + t * ((props.botW - props.topW) / 2);
+  };
+  const strips = [];
+  for (let i = 0; i < count; i++) {
+    const y = props.horizon + i * stripH;
+    const half = halfAt(y + stripH);
+    const t = Math.max(0, Math.min(1, (y - props.horizon) / roadH));
+    const edge = Math.max(2, Math.round(t * 8));
+    strips.push(
+      <View
+        key={i}
+        style={{
+          position: 'absolute',
+          top: y,
+          left: props.width / 2 - half,
+          width: half * 2,
+          height: stripH + 1,
+          backgroundColor: props.color,
+          borderLeftWidth: edge,
+          borderRightWidth: edge,
+          borderLeftColor: t > 0.55 && Math.floor(y / 18) % 2 === 0 ? '#EF4444' : '#F8FAFC',
+          borderRightColor: t > 0.55 && Math.floor(y / 18) % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+        }}
+      />,
+    );
+  }
+  return <>{strips}</>;
+});
+
+const PlayerRig = React.memo(function PlayerRig(props: {
+  driver: Driver;
+  viewMode: DriverViewMode;
+  color: string;
+  accent: string;
+  emoji: string;
+  flashing: boolean;
+  stripe: string;
+}) {
+  return (
+    <>
+      <View style={{ alignItems: 'center', marginBottom: -10, zIndex: 3 }}>
+        <DriverFace driver={props.driver} mode={props.viewMode} size={48} />
+      </View>
+      <CarView color={props.color} accent={props.accent} emoji={props.emoji} width={150} flashing={props.flashing} mode={props.viewMode} angle="rear" stripe={props.stripe} />
+    </>
+  );
+});
 
 interface Props {
   levelId: number;
@@ -66,9 +147,11 @@ export function RaceScreen(props: Props) {
   const insets = useSafeAreaInsets();
 
   // Perspective geometry (live window size, landscape).
-  const HORIZON = H * 0.34;
-  const ROAD_TOP_W = W * 0.2;
-  const ROAD_BOT_W = W * 0.62;
+  // Narrow at the horizon, almost full width under the car — a road,
+  // not a spike in the middle of the grass.
+  const HORIZON = H * 0.36;
+  const ROAD_TOP_W = Math.max(48, W * 0.1);
+  const ROAD_BOT_W = W * 0.92;
   const ROAD_H = H - HORIZON;
   const PLAYER_Y = H - 118;
   const roadHalfAt = (y: number) => {
@@ -83,10 +166,16 @@ export function RaceScreen(props: Props) {
   // Upgrades that change the race (bought in the Shop):
   // Engine +4% top speed/level, Turbo +6% BOOST power/level,
   // Extra Heart +1 starting heart/level, Star Magnet pulls stars.
-  const boostMul = 1.3 + upgrades.turbo * 0.06;
+  // Turbo upgrade and the skin's Acceleration stat both make BOOST stronger.
+  const boostMul = (1.3 + upgrades.turbo * 0.06) * (1 + (skin.acceleration - 3) * 0.04);
+  // Higher Handling makes bumps a little narrower and stars a little easier to grab.
+  const handling = vehicle.handling;
+  const hazardPad = 70 - (handling - 3) * 5;
+  const starPad = 70 + (handling - 3) * 8;
 
   const [countdown, setCountdown] = useState(3);
-  const [lane, setLane] = useState(1);
+  const [goFlash, setGoFlash] = useState(false);
+  const [carLane, setCarLane] = useState(1);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [stars, setStars] = useState(0);
   const [balloons, setBalloons] = useState(0);
@@ -107,6 +196,11 @@ export function RaceScreen(props: Props) {
   };
 
   const laneRef = useRef(1);
+  const laneVisual = useRef(1);
+  const carLaneRef = useRef(1);
+  const mphShown = useRef(0);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const racingRef = useRef(false);
   const entitiesRef = useRef<Entity[]>([]);
   const starsRef = useRef(0);
   const balloonsRef = useRef(0);
@@ -144,15 +238,21 @@ export function RaceScreen(props: Props) {
   const moveLane = (dir: -1 | 1) => {
     const next = Math.max(0, Math.min(2, laneRef.current + dir));
     laneRef.current = next;
-    setLane(next);
+    // While the race clock is stopped, snap the car. During the race it slides.
+    if (!racingRef.current) {
+      laneVisual.current = next;
+      carLaneRef.current = next;
+      setCarLane(next);
+    }
   };
 
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      // Taps fall through to the thumb buttons. A sideways swipe steers.
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 28 && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderRelease: (_e, g) => {
-        if (Math.abs(g.dx) > 30) moveLane(g.dx > 0 ? 1 : -1);
+        if (Math.abs(g.dx) > 36) moveLane(g.dx > 0 ? 1 : -1);
       },
     }),
   ).current;
@@ -188,18 +288,31 @@ export function RaceScreen(props: Props) {
     entitiesRef.current = [...entitiesRef.current, e];
   };
 
-  // Countdown, then start music + pre-spawn 2 traffic cars.
+  // Countdown, a GO! flash, then music + 2 traffic cars already on the road.
   useEffect(() => {
     if (countdown <= 0) {
+      setGoFlash(true);
       music.start();
       spawn('traffic', HORIZON - 40);
       spawn('traffic', HORIZON - 140);
-      return;
+      const t = setTimeout(() => setGoFlash(false), 480);
+      return () => clearTimeout(t);
     }
     const t = setTimeout(() => setCountdown((c) => c - 1), 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countdown]);
+
+  // Pause freezes the music too, so the break feels like a game pause.
+  useEffect(() => {
+    if (countdown > 0) return;
+    if (paused) {
+      music.pause();
+      setBoost(false);
+    } else {
+      music.resume();
+    }
+  }, [paused, countdown]);
 
   // Race clock (1 s ticks, for the HUD timer).
   useEffect(() => {
@@ -211,19 +324,25 @@ export function RaceScreen(props: Props) {
     return () => clearInterval(iv);
   }, [countdown, paused]);
 
+  const pokeToast = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 1100);
+  };
+
   // Game loop.
   useEffect(() => {
     if (countdown > 0 || paused || finishedRef.current) return;
+    racingRef.current = true;
     const iv = setInterval(() => {
+      if (finishedRef.current) return;
       const dt = TICK_MS / 1000;
       // Single scroll delta — pacing fix — boosted +30% while the
       // BOOST button is held (boostRef, not state: the interval
       // closure would go stale on the state value).
       const dy = scrollSpeed * (boostRef.current ? boostMul : 1) * dt;
       const mphNow = Math.round(currentMph * (boostRef.current ? boostMul : 1));
-      setRoadOffset((o) => (o + dy) % 90);
       topSpeedRef.current = Math.max(topSpeedRef.current, mphNow);
-      setMph(mphNow);
 
       trafficTimer.current += TICK_MS;
       if (trafficTimer.current >= trafficInterval) {
@@ -263,10 +382,11 @@ export function RaceScreen(props: Props) {
         // star that has drifted into the player's lane counts.
         const entityX = laneX(e.lane, y) + xShift;
         const playerX = laneX(laneRef.current, PLAYER_Y);
-        const hit = Math.abs(y - PLAYER_Y) < 66 && Math.abs(entityX - playerX) < 70;
+        const reach = e.kind === 'star' || e.kind === 'balloon' ? starPad : hazardPad;
+        const hit = Math.abs(y - PLAYER_Y) < 66 && Math.abs(entityX - playerX) < reach;
         if (hit && (e.kind === 'star' || e.kind === 'balloon')) {
           if (e.kind === 'star') { nextStars += 1; nextScore += STAR_POINTS; playSfx('star'); }
-          else { nextBalloons += 1; nextScore += 20; setToast('🎈 Balloon bonus! +20'); setTimeout(() => setToast(''), 1200); }
+          else { nextBalloons += 1; nextScore += 20; pokeToast('🎈 Balloon bonus! +20'); }
           continue;
         }
         if (hit && now > invulnerableUntil.current) {
@@ -275,27 +395,48 @@ export function RaceScreen(props: Props) {
           setFlash(true);
           setTimeout(() => setFlash(false), 300);
           playSfx('bump');
-          setToast(e.kind === 'traffic' ? '💥 Oops! Slow car!' : e.kind === 'cone' ? '💥 Cone bump!' : '💦 Puddle splash!');
-          setTimeout(() => setToast(''), 1200);
+          pokeToast(e.kind === 'traffic' ? '💥 Oops! Slow car!' : e.kind === 'cone' ? '💥 Cone bump!' : '💦 Puddle splash!');
           continue;
         }
         kept.push({ ...e, y, xShift });
       }
       entitiesRef.current = kept;
+      const starsChanged = nextStars !== starsRef.current;
+      const balloonsChanged = nextBalloons !== balloonsRef.current;
+      const heartsChanged = nextHearts !== heartsRef.current;
       starsRef.current = nextStars;
       balloonsRef.current = nextBalloons;
       heartsRef.current = nextHearts;
       scoreRef.current = nextScore;
-      setEntities(kept);
-      setStars(nextStars);
-      setBalloons(nextBalloons);
-      setHearts(nextHearts);
-      setScore(nextScore);
 
-      if (nextStars >= level.starGoal) finish(true);
-      else if (nextHearts <= 0) finish(false);
+      // Steering eases toward the lane. Higher handling slides faster.
+      const targetLane = laneRef.current;
+      const ease = 0.28 + handling * 0.07;
+      laneVisual.current += (targetLane - laneVisual.current) * ease;
+      if (Math.abs(laneVisual.current - targetLane) < 0.02) laneVisual.current = targetLane;
+      if (Math.abs(laneVisual.current - carLaneRef.current) > 0.02) {
+        carLaneRef.current = laneVisual.current;
+        setCarLane(laneVisual.current);
+      }
+
+      if (nextStars >= level.starGoal) { finish(true); return; }
+      if (nextHearts <= 0) { finish(false); return; }
+
+      setEntities(kept);
+      setRoadOffset((o) => (o + dy) % 90);
+      if (mphNow !== mphShown.current) {
+        mphShown.current = mphNow;
+        setMph(mphNow);
+      }
+      if (starsChanged) setStars(nextStars);
+      if (balloonsChanged) setBalloons(nextBalloons);
+      if (heartsChanged) setHearts(nextHearts);
+      setScore(nextScore);
     }, TICK_MS);
-    return () => clearInterval(iv);
+    return () => {
+      racingRef.current = false;
+      clearInterval(iv);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countdown, paused]);
 
@@ -332,21 +473,13 @@ export function RaceScreen(props: Props) {
       </View>
       <View style={[styles.ground, { top: HORIZON, backgroundColor: level.grass }]} />
 
-      {/* Road — trapezoid vanishing to the horizon (border trick) */}
-      <View
-        style={{
-          position: 'absolute',
-          top: HORIZON,
-          left: (W - ROAD_BOT_W) / 2,
-          width: ROAD_TOP_W,
-          height: 0,
-          borderLeftWidth: (ROAD_BOT_W - ROAD_TOP_W) / 2,
-          borderLeftColor: 'transparent',
-          borderRightWidth: (ROAD_BOT_W - ROAD_TOP_W) / 2,
-          borderRightColor: 'transparent',
-          borderBottomWidth: ROAD_H,
-          borderBottomColor: level.road,
-        }}
+      <RoadSurface
+        width={W}
+        height={H}
+        horizon={HORIZON}
+        topW={ROAD_TOP_W}
+        botW={ROAD_BOT_W}
+        color={level.road}
       />
       {/* Checkered kerbs along the converging edges */}
       {dashes.map((y, i) => (
@@ -393,21 +526,36 @@ export function RaceScreen(props: Props) {
         );
       })}
 
-      {/* Player car — rear view, bottom-centre, driver face above it */}
-      <View style={{ position: 'absolute', left: laneX(lane, PLAYER_Y) - 75, top: PLAYER_Y - 40 }}>
-        <View style={{ alignItems: 'center', marginBottom: -10, zIndex: 3 }}>
-          <DriverFace driver={props.driver} mode={props.viewMode} size={48} />
-        </View>
-        <CarView color={props.skinColor} accent={props.skinAccent} emoji={vehicle.emoji} width={150} flashing={flash} mode={props.viewMode} angle="rear" stripe={skin.stripe} />
+      {/* Player car — slides between lanes. Bob uses the road scroll, so the
+          heavy car drawing does not have to re-render every frame. */}
+      <View style={{
+        position: 'absolute',
+        left: laneX(carLane, PLAYER_Y) - 75,
+        top: PLAYER_Y - 40,
+        transform: [
+          { translateY: Math.sin(roadOffset / 16) * 3 },
+          { scale: boosting ? 1.06 : 1 },
+        ],
+      }}>
+        <PlayerRig
+          driver={props.driver}
+          viewMode={props.viewMode}
+          color={props.skinColor}
+          accent={props.skinAccent}
+          emoji={vehicle.emoji}
+          flashing={flash}
+          stripe={skin.stripe}
+        />
+        {boosting ? <Text style={styles.flame}>🔥</Text> : null}
       </View>
 
       {/* HUD — top-left: position / LAP / timer, on a dark pill so
           the white text reads over any scenery */}
       <View style={[styles.hudLeft, styles.hudPill, { top: insets.top + 6, left: insets.left + 10 }]}>
-        <Text style={styles.positionText}>{position}TH</Text>
+        <Text style={styles.positionText}>{placeLabel(position)}</Text>
         <Text style={styles.hudSmall}>LAP {lap}/3 • {mm}:{ss}</Text>
         <Text style={styles.hudSmall}>⭐ {stars}/{level.starGoal} • 🏆 {score}</Text>
-        <Text style={styles.hudSmall}>{'❤️'.repeat(Math.max(0, hearts))}</Text>
+        <Text style={styles.hudSmall}>{heartLine(hearts)}</Text>
       </View>
 
       {/* HUD — top-centre: progress / minimap bar */}
@@ -430,7 +578,7 @@ export function RaceScreen(props: Props) {
             <Text style={styles.roundText}>{props.musicOn ? '🎵' : '🔇'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleSfx}>
-            <Text style={styles.roundText}>{isSfxEnabled() ? '🔊' : '🔇'}</Text>
+            <Text style={styles.roundText}>{props.sfxOn ? '🔊' : '🔇'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.roundBtn} onPress={props.onQuit}>
             <Text style={styles.roundText}>🏠</Text>
@@ -439,10 +587,10 @@ export function RaceScreen(props: Props) {
       </View>
 
       {toast ? <Text style={[styles.toast, { bottom: insets.bottom + 110 }]}>{toast}</Text> : null}
-      {countdown > 0 && (
-        <View style={styles.countdown}>
-          <Text style={styles.countdownText}>{countdown}</Text>
-          <Text style={styles.countdownSub}>Get ready…</Text>
+      {(countdown > 0 || goFlash) && (
+        <View style={styles.countdown} pointerEvents="none">
+          <Text style={styles.countdownText}>{countdown > 0 ? countdown : 'GO!'}</Text>
+          <Text style={styles.countdownSub}>{countdown > 0 ? 'Get ready…' : 'Zoom!'}</Text>
         </View>
       )}
 
@@ -459,7 +607,7 @@ export function RaceScreen(props: Props) {
       {/* Right thumb buttons — horn + BOOST (hold) + pause.
           BOOST is the big one: hold it for +30% speed. */}
       <View style={[styles.rightBtns, { right: insets.right + 14, bottom: insets.bottom + 12 }]}>
-        <TouchableOpacity style={styles.hornBtn} onPress={() => { playSfx('horn'); setToast('📣 Beep beep!'); setTimeout(() => setToast(''), 900); }}>
+        <TouchableOpacity style={styles.hornBtn} onPress={() => { playSfx('horn'); pokeToast('📣 Beep beep!'); }}>
           <Text style={styles.hornText}>📣</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -480,7 +628,10 @@ export function RaceScreen(props: Props) {
         <View style={styles.pausedOverlay}>
           <Text style={styles.pausedText}>⏸ Paused</Text>
           <TouchableOpacity style={styles.resumeBtn} onPress={() => setPaused(false)}>
-            <Text style={styles.resumeText}>▶ RESUME RACE</Text>
+            <Text style={styles.resumeText}>▶ RESUME</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quitBtn} onPress={props.onQuit}>
+            <Text style={styles.quitText}>🏠 Home</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -517,7 +668,8 @@ const styles = StyleSheet.create({
   roundBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' },
   roundText: { fontSize: 17 },
   toast: { position: 'absolute', left: 0, right: 0, textAlign: 'center', fontWeight: '900', color: '#fff', fontSize: 18, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
-  countdown: { position: 'absolute', top: '30%', left: 0, right: 0, alignItems: 'center' },
+  flame: { position: 'absolute', bottom: -6, alignSelf: 'center', fontSize: 22 },
+  countdown: { position: 'absolute', top: '28%', left: 0, right: 0, alignItems: 'center', zIndex: 8 },
   countdownText: { fontSize: 90, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 8 },
   countdownSub: { fontSize: 20, fontWeight: '800', color: '#fff' },
   joystick: {
@@ -536,8 +688,13 @@ const styles = StyleSheet.create({
   boostText: { fontSize: 30 },
   boostLabel: { fontSize: 11, fontWeight: '900', color: '#fff' },
   pauseBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center', elevation: 3 },
-  pausedOverlay: { position: 'absolute', top: '28%', left: '28%', right: '28%', backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 24, padding: 24, alignItems: 'center', elevation: 8 },
-  pausedText: { fontSize: 28, fontWeight: '900', color: '#1E293B' },
-  resumeBtn: { backgroundColor: '#22C55E', borderRadius: 18, paddingVertical: 14, paddingHorizontal: 24, marginTop: 14, borderBottomWidth: 4, borderBottomColor: '#15803D' },
-  resumeText: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  pausedOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30,
+    backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center',
+  },
+  pausedText: { fontSize: 40, fontWeight: '900', color: '#fff' },
+  resumeBtn: { backgroundColor: '#22C55E', borderRadius: 22, paddingVertical: 16, paddingHorizontal: 36, marginTop: 16, borderBottomWidth: 5, borderBottomColor: '#15803D' },
+  resumeText: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  quitBtn: { marginTop: 12, paddingVertical: 10, paddingHorizontal: 22 },
+  quitText: { color: '#fff', fontSize: 18, fontWeight: '900' },
 });

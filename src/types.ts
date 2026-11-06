@@ -19,9 +19,9 @@ export interface Difficulty {
 }
 
 export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
-  low: { id: 'low', label: 'Low', hearts: 5, speedMul: 0.82, trafficIntervalMs: 2000, winBonus: 50 },
-  mid: { id: 'mid', label: 'Mid', hearts: 4, speedMul: 1.0, trafficIntervalMs: 1500, winBonus: 100 },
-  high: { id: 'high', label: 'High', hearts: 3, speedMul: 1.22, trafficIntervalMs: 1050, winBonus: 150 },
+  low: { id: 'low', label: 'Easy', hearts: 5, speedMul: 0.82, trafficIntervalMs: 2000, winBonus: 50 },
+  mid: { id: 'mid', label: 'Super', hearts: 4, speedMul: 1.0, trafficIntervalMs: 1500, winBonus: 100 },
+  high: { id: 'high', label: 'Turbo', hearts: 3, speedMul: 1.22, trafficIntervalMs: 1050, winBonus: 150 },
 };
 
 export const DIFFICULTY_ORDER: DifficultyId[] = ['low', 'mid', 'high'];

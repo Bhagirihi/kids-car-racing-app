@@ -28,7 +28,7 @@ import { driverById, DRIVERS } from './src/data/drivers';
 import { skinById, SKINS, VEHICLES, PAINTS, paintById } from './src/data/skins';
 import { LEVELS } from './src/data/levels';
 import { MAX_UPGRADES, UPGRADES, nextUpgradeCost, type UpgradeId } from './src/data/upgrades';
-import { showRewardedAd } from './src/ads';
+import { isAdsConfigured, showRewardedAd } from './src/ads';
 import { DEFAULT_PROFILE, DifficultyId, Profile, RaceResult } from './src/types';
 import type { DriverViewMode } from './src/components/DriverFace';
 
@@ -43,6 +43,8 @@ const GEM_PERFECT_RACE = 10;
 const GEM_DAILY_MISSION = 5;
 const GEM_AD_REWARD = 10;
 const GEM_TRIAL_COST = 5;
+const GEM_DOUBLE_COST = 3;
+const GEM_HEART_COST = 3;
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -164,8 +166,10 @@ export default function App() {
   const raceVehicle = VEHICLES.find((v) => v.id === raceVehicleId) ?? VEHICLES[0];
 
   const startRace = (levelId: number, difficulty: DifficultyId, vehicleId: string, extraHearts = 0) => {
+    // A one-race trial replaces the equipped car for this start only.
+    const useVehicle = profile.trialVehicleId || vehicleId;
     music.start();
-    setScreen({ kind: 'race', levelId, difficulty, vehicleId, driverId: profile.selectedDriver, viewMode: profile.viewMode, extraHearts });
+    setScreen({ kind: 'race', levelId, difficulty, vehicleId: useVehicle, driverId: profile.selectedDriver, viewMode: profile.viewMode, extraHearts });
   };
 
   if (screen.kind === 'race') {
@@ -191,7 +195,11 @@ export default function App() {
           sfxOn={sfxOn}
           onToggleMusic={toggleMusic}
           onToggleSfx={toggleSfx}
-          onFinish={(r) => handleFinish(r, screen)}
+          onFinish={(r) => handleFinish(r, {
+            ...screen,
+            // Trial lasts one race. Race Again / Next Level use the real car.
+            vehicleId: profile.trialVehicleId ? (profile.selectedVehicle || driver.vehicleId) : screen.vehicleId,
+          })}
           onQuit={() => {
             music.pause();
             setProfile((prev) => {
@@ -208,6 +216,22 @@ export default function App() {
 
   if (screen.kind === 'results') {
     const { result, race } = screen;
+    const adsReady = isAdsConfigured && !profile.adFree;
+    const grantDouble = () => {
+      setProfile((prev) => {
+        const base = prev ?? DEFAULT_PROFILE;
+        const next = { ...base, points: base.points + result.pointsEarned };
+        void saveProfile(next);
+        return next;
+      });
+      setScreen((s) =>
+        s.kind === 'results'
+          ? { ...s, result: { ...s.result, pointsEarned: s.result.pointsEarned * 2, coinsDoubled: true } }
+          : s,
+      );
+    };
+    const canDouble = result.won && !result.coinsDoubled && (adsReady || profile.gems >= GEM_DOUBLE_COST);
+    const canHeart = !result.won && (adsReady || profile.gems >= GEM_HEART_COST);
     return (
       <SafeAreaProvider>
         <StatusBar style="dark" />
@@ -219,17 +243,28 @@ export default function App() {
           onNextLevel={() => startRace(Math.min(LEVELS.length, race.levelId + 1), race.difficulty, race.vehicleId)}
           onRaceAgain={() => startRace(race.levelId, race.difficulty, race.vehicleId)}
           onHome={() => setScreen({ kind: 'home' })}
+          bonusMode={adsReady ? 'ad' : 'gems'}
+          doubleLabel={adsReady ? '📺 Double Coins' : `💎 ${GEM_DOUBLE_COST}  Double Coins`}
+          retryLabel={adsReady ? '📺 Try Again +1 ❤️' : `💎 ${GEM_HEART_COST}  Try Again +1 ❤️`}
           onDoubleCoins={
-            !profile.adFree && !result.coinsDoubled
+            canDouble
               ? async () => {
-                  const ad = await showRewardedAd('double-coins');
-                  if (ad !== 'earned') return ad;
+                  if (adsReady) {
+                    const ad = await showRewardedAd('double-coins');
+                    if (ad !== 'earned') return ad;
+                    grantDouble();
+                    return 'earned';
+                  }
+                  let paid = false;
                   setProfile((prev) => {
                     const base = prev ?? DEFAULT_PROFILE;
-                    const next = { ...base, points: base.points + result.pointsEarned };
+                    if (base.gems < GEM_DOUBLE_COST) return base;
+                    paid = true;
+                    const next = { ...base, gems: base.gems - GEM_DOUBLE_COST, points: base.points + result.pointsEarned };
                     void saveProfile(next);
                     return next;
                   });
+                  if (!paid) return 'failed';
                   setScreen((s) =>
                     s.kind === 'results'
                       ? { ...s, result: { ...s.result, pointsEarned: s.result.pointsEarned * 2, coinsDoubled: true } }
@@ -240,10 +275,24 @@ export default function App() {
               : undefined
           }
           onRetryWithHeart={
-            !profile.adFree && !result.won
+            canHeart
               ? async () => {
-                  const ad = await showRewardedAd('retry-heart');
-                  if (ad !== 'earned') return ad;
+                  if (adsReady) {
+                    const ad = await showRewardedAd('retry-heart');
+                    if (ad !== 'earned') return ad;
+                    startRace(race.levelId, race.difficulty, race.vehicleId, 1);
+                    return 'earned';
+                  }
+                  let paid = false;
+                  setProfile((prev) => {
+                    const base = prev ?? DEFAULT_PROFILE;
+                    if (base.gems < GEM_HEART_COST) return base;
+                    paid = true;
+                    const next = { ...base, gems: base.gems - GEM_HEART_COST };
+                    void saveProfile(next);
+                    return next;
+                  });
+                  if (!paid) return 'failed';
                   startRace(race.levelId, race.difficulty, race.vehicleId, 1);
                   return 'earned';
                 }
@@ -282,7 +331,13 @@ export default function App() {
           if (profile.ownedSkins.includes(skinId)) updateProfile({ ...profile, equippedSkin: skinId });
         }}
         onSelectDriver={(driverId) => {
-          if (profile.ownedDrivers.includes(driverId)) updateProfile({ ...profile, selectedDriver: driverId });
+          if (!profile.ownedDrivers.includes(driverId)) return;
+          const d = driverById(driverId);
+          updateProfile({
+            ...profile,
+            selectedDriver: driverId,
+            selectedVehicle: profile.ownedVehicles.includes(d.vehicleId) ? d.vehicleId : profile.selectedVehicle,
+          });
         }}
         onBuyDriver={(driverId) => {
           const d = DRIVERS.find((x) => x.id === driverId);
@@ -294,6 +349,7 @@ export default function App() {
             ownedDrivers: [...next.ownedDrivers, driverId],
             ownedVehicles: next.ownedVehicles.includes(d.vehicleId) ? next.ownedVehicles : [...next.ownedVehicles, d.vehicleId],
             selectedDriver: driverId,
+            selectedVehicle: d.vehicleId,
           });
         }}
         onToggleViewMode={(mode) => updateProfile({ ...profile, viewMode: mode })}

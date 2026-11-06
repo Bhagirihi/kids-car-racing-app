@@ -21,7 +21,7 @@ interface Props {
   size?: number;
 }
 
-export function DriverFace({ driver, mode, size = 84 }: Props) {
+export const DriverFace = React.memo(function DriverFace({ driver, mode, size = 84 }: Props) {
   const is3d = mode === '3d';
   const S = size;
   const face = S * 0.86; // face circle diameter
@@ -135,7 +135,7 @@ export function DriverFace({ driver, mode, size = 84 }: Props) {
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { position: 'relative', alignItems: 'center' },
