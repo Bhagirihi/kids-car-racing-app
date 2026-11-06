@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+# Expo
+.expo/
+dist/
+# Native build outputs
+android/
+ios/
+# Logs
+*.log
+npm-debug.log*
+# macOS / editors
+.DS_Store
+*.swp
