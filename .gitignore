@@ -9,6 +9,8 @@ ios/
 # Logs
 *.log
 npm-debug.log*
+# Secrets — never commit a real .env (only .env.example, which is empty)
+.env
 # macOS / editors
 .DS_Store
 *.swp

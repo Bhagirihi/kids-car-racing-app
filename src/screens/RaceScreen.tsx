@@ -27,10 +27,10 @@ import { LEVELS, STAR_POINTS } from '../data/levels';
 import { TRAFFIC_COLORS, vehicleById, skinById } from '../data/skins';
 import { music } from '../music';
 import { isSfxEnabled, playSfx } from '../sfx';
-import { DIFFICULTIES, DifficultyId, RaceResult } from '../types';
+import { DIFFICULTIES, DifficultyId, RaceResult, UpgradesState } from '../types';
 
 type Kind = 'star' | 'traffic' | 'cone' | 'puddle' | 'balloon';
-interface Entity { id: number; kind: Kind; lane: number; y: number; color?: string }
+interface Entity { id: number; kind: Kind; lane: number; y: number; color?: string; xShift?: number }
 
 const TICK_MS = 30;
 
@@ -43,6 +43,12 @@ interface Props {
   skinColor: string;
   skinAccent: string;
   skinId?: string;
+  /** Bought upgrades (Engine / Turbo / Extra Heart / Star Magnet) — they change the race, see below. */
+  upgrades?: UpgradesState;
+  /** Base speed stat (1–5) of the equipped vehicle. */
+  vehicleSpeed?: number;
+  /** Extra starting heart granted by a rewarded ad retry (failed race). */
+  extraHearts?: number;
   musicOn: boolean;
   sfxOn: boolean;
   onToggleMusic: () => void;
@@ -72,12 +78,19 @@ export function RaceScreen(props: Props) {
   const laneX = (lane: number, y: number) => W / 2 + (lane - 1) * (roadHalfAt(y) * 2 / 3);
   const depthScale = (y: number) => 0.35 + 0.65 * Math.max(0, Math.min(1, (y - HORIZON) / ROAD_H));
 
+  const upgrades: UpgradesState = props.upgrades ?? { engine: 0, turbo: 0, heart: 0, magnet: 0 };
+  const vehicleSpeed = props.vehicleSpeed ?? 3;
+  // Upgrades that change the race (bought in the Shop):
+  // Engine +4% top speed/level, Turbo +6% BOOST power/level,
+  // Extra Heart +1 starting heart/level, Star Magnet pulls stars.
+  const boostMul = 1.3 + upgrades.turbo * 0.06;
+
   const [countdown, setCountdown] = useState(3);
   const [lane, setLane] = useState(1);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [stars, setStars] = useState(0);
   const [balloons, setBalloons] = useState(0);
-  const [hearts, setHearts] = useState(diff.hearts);
+  const [hearts, setHearts] = useState(diff.hearts + upgrades.heart + (props.extraHearts ?? 0));
   const [score, setScore] = useState(0);
   const [paused, setPaused] = useState(false);
   const [roadOffset, setRoadOffset] = useState(0);
@@ -97,7 +110,8 @@ export function RaceScreen(props: Props) {
   const entitiesRef = useRef<Entity[]>([]);
   const starsRef = useRef(0);
   const balloonsRef = useRef(0);
-  const heartsRef = useRef(diff.hearts);
+  const heartsRef = useRef(diff.hearts + upgrades.heart + (props.extraHearts ?? 0));
+  const maxHeartsRef = useRef(diff.hearts + upgrades.heart + (props.extraHearts ?? 0));
   const scoreRef = useRef(0);
   const finishedRef = useRef(false);
   const idRef = useRef(1);
@@ -111,9 +125,10 @@ export function RaceScreen(props: Props) {
   const balloonTimer = useRef(9000);
 
   const trafficInterval = diff.trafficIntervalMs * level.trafficFactor;
-  // Skin Speed stat gives a tiny top-speed bonus (garage stats matter).
-  const scrollSpeed = level.baseSpeed * diff.speedMul * (0.96 + skin.speed * 0.015);
-  const currentMph = Math.round(90 + scrollSpeed * 0.28 + skin.speed * 4);
+  // Skin Speed stat gives a tiny top-speed bonus (garage stats matter),
+  // Engine upgrade +4%/level, vehicle Speed stat +2% per point above 3.
+  const scrollSpeed = level.baseSpeed * diff.speedMul * (0.96 + skin.speed * 0.015) * (1 + upgrades.engine * 0.04) * (1 + (vehicleSpeed - 3) * 0.02);
+  const currentMph = Math.round((90 + scrollSpeed * 0.28 + skin.speed * 4) * (1 + upgrades.engine * 0.04));
 
   // Immersive mode: bars stay hidden while racing, but come back
   // while paused (so the pause screen is a normal screen again) and
@@ -159,6 +174,8 @@ export function RaceScreen(props: Props) {
       difficulty: props.difficulty,
       topSpeedMph: topSpeedRef.current,
       timeSeconds: Math.round(elapsedRef.current),
+      heartsLeft: heartsRef.current,
+      maxHearts: maxHeartsRef.current,
     });
   };
 
@@ -202,8 +219,8 @@ export function RaceScreen(props: Props) {
       // Single scroll delta — pacing fix — boosted +30% while the
       // BOOST button is held (boostRef, not state: the interval
       // closure would go stale on the state value).
-      const dy = scrollSpeed * (boostRef.current ? 1.3 : 1) * dt;
-      const mphNow = Math.round(currentMph * (boostRef.current ? 1.3 : 1));
+      const dy = scrollSpeed * (boostRef.current ? boostMul : 1) * dt;
+      const mphNow = Math.round(currentMph * (boostRef.current ? boostMul : 1));
       setRoadOffset((o) => (o + dy) % 90);
       topSpeedRef.current = Math.max(topSpeedRef.current, mphNow);
       setMph(mphNow);
@@ -231,9 +248,22 @@ export function RaceScreen(props: Props) {
       const kept: Entity[] = [];
       for (const e of entitiesRef.current) {
         const speed = e.kind === 'traffic' ? dy * 0.9 : dy;
-        const y = e.y + speed;
+        let y = e.y + speed;
+        let xShift = e.xShift ?? 0;
+        // Star Magnet: stars within ~350px drift sideways toward the
+        // player's lane and rush down faster, so they are easier to grab.
+        if (e.kind === 'star' && upgrades.magnet > 0 && Math.abs(y - PLAYER_Y) < 350) {
+          const targetX = laneX(laneRef.current, y) - laneX(e.lane, y);
+          const step = Math.max(-upgrades.magnet * 3.5, Math.min(upgrades.magnet * 3.5, targetX - xShift));
+          xShift += step;
+          y += dy * 0.25 * upgrades.magnet;
+        }
         if (y > H + 100) continue;
-        const hit = Math.abs(y - PLAYER_Y) < 66 && e.lane === laneRef.current;
+        // Hit test by on-screen x (not just lane) so a magnet-pulled
+        // star that has drifted into the player's lane counts.
+        const entityX = laneX(e.lane, y) + xShift;
+        const playerX = laneX(laneRef.current, PLAYER_Y);
+        const hit = Math.abs(y - PLAYER_Y) < 66 && Math.abs(entityX - playerX) < 70;
         if (hit && (e.kind === 'star' || e.kind === 'balloon')) {
           if (e.kind === 'star') { nextStars += 1; nextScore += STAR_POINTS; playSfx('star'); }
           else { nextBalloons += 1; nextScore += 20; setToast('🎈 Balloon bonus! +20'); setTimeout(() => setToast(''), 1200); }
@@ -249,7 +279,7 @@ export function RaceScreen(props: Props) {
           setTimeout(() => setToast(''), 1200);
           continue;
         }
-        kept.push({ ...e, y });
+        kept.push({ ...e, y, xShift });
       }
       entitiesRef.current = kept;
       starsRef.current = nextStars;
@@ -350,7 +380,7 @@ export function RaceScreen(props: Props) {
         return (
           <View
             key={e.id}
-            style={{ position: 'absolute', left: x - 22, top: e.y, width: 44, alignItems: 'center', transform: [{ scale: s }] }}
+            style={{ position: 'absolute', left: x - 22 + (e.xShift ?? 0), top: e.y, width: 44, alignItems: 'center', transform: [{ scale: s }] }}
           >
             {e.kind === 'traffic' ? (
               <View style={[styles.trafficCar, { backgroundColor: e.color }]}>
