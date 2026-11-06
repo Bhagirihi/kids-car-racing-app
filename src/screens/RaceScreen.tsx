@@ -34,6 +34,9 @@
 //   scenery and dashes all surge together on boost.
 // - Minimap/progress bar is race progress (distance + stars), labelled
 //   as such — it reaches the flag exactly when you win.
+// - Sunset fix (2026-11-06): the loop now syncs the HUD numbers AND
+//   the rendered entities with the refs — before that, stars/traffic/
+//   rivals were collected and hit while invisible on the road.
 // - Steer buttons are big LEFT / RIGHT arrows with labels (not media
 //   triangles). Dragging moves the car with the finger, continuously.
 // - Handling (vehicle + skin) changes how fast the car slides between
@@ -43,7 +46,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  PanResponder, StyleSheet, Text, TouchableOpacity, View,
+  Image, PanResponder, StyleSheet, Text, TouchableOpacity, View,
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -66,6 +69,19 @@ interface GrassTuft { id: number; side: -1 | 1; y: number; offset: number }
 
 const TICK_MS = 30;
 const RIVALS_TOTAL = 9;
+
+// Photo player-car sprites (assets/cars/): direct rear views with a
+// transparent background. Only 'race' and 'police' have one — every
+// other vehicle keeps the drawn rear CarView.
+const RACE_PHOTOS: Record<string, any> = {
+  race: require('../../assets/cars/race-red.png'),
+  police: require('../../assets/cars/race-police.png'),
+};
+
+// Sunset sky backdrop (Sunny Park only): a band cropped from the
+// mockup's own race photo — orange clouds, palm tops, street lamps.
+// The scrolling road is still drawn by the engine below the horizon.
+const SUNSET_SKY = require('../../assets/cars/race-sunset-sky.jpg');
 
 function heartLine(n: number): string {
   if (n <= 0) return '💔';
@@ -172,10 +188,15 @@ export function RaceScreen(props: Props) {
   const laneX = (lane: number, y: number) => W / 2 + (lane - 1) * (roadHalfAt(y) * 2 / 3);
   const depthScale = (y: number) => 0.35 + 0.65 * Math.max(0, Math.min(1, (y - HORIZON) / ROAD_H));
   // Car / buttons / hit box scale with screen width (no fixed 150px car).
-  const CAR_W = Math.round(Math.max(110, Math.min(200, W * 0.18)));
+  // Big player car, like the mockup: the red flame car fills ~30% of
+  // the screen width. The hit box is derived from CAR_W, so it scales
+  // with the picture (no invisible hits).
+  const CAR_W = Math.round(Math.max(180, Math.min(360, W * 0.3)));
   const CAR_H = Math.round(CAR_W * 0.78);
   const PLAYER_Y = Math.round(H - CAR_H - insets.bottom - 10);
   const BTN = Math.round(Math.max(56, Math.min(84, W * 0.085)));
+  // Round joystick pad (mockup: dark glass circle + knob, bottom-left).
+  const JOY = Math.round(Math.max(104, Math.min(148, W * 0.115)));
   // Lean of the converging lanes, in degrees — dashes rotate by it.
   const LEAN_DEG = (Math.atan2((ROAD_BOT_W - ROAD_TOP_W) / 2, ROAD_H) * 180) / Math.PI;
 
@@ -214,6 +235,7 @@ export function RaceScreen(props: Props) {
   const [rivalsPassed, setRivalsPassed] = useState(0);
   const [lap, setLap] = useState(1);
   const [distance, setDistance] = useState(0);
+  const [knobX, setKnobX] = useState(0); // joystick knob, -1 (left) .. 1 (right)
   const boostRef = useRef(false);
   const setBoost = (on: boolean) => { boostRef.current = on; setBoosting(on); };
 
@@ -263,8 +285,8 @@ export function RaceScreen(props: Props) {
   const raceProgress = Math.min(1, Math.max(stars / level.starGoal, distance / totalDistance));
   const position = RIVALS_TOTAL + 1 - rivalsPassed; // 10th -> 1st, by rivals actually passed
   const ordinal = (n: number) => (n === 1 ? '1ST' : n === 2 ? '2ND' : n === 3 ? '3RD' : `${n}TH`);
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-  const ss = String(elapsed % 60).padStart(2, '0');
+  // (Timer + score still run — elapsed/score feed the Results screen;
+  // the race HUD itself shows place / lap / stars only, like the mockup.)
 
   useEffect(() => {
     void setImmersiveMode(!paused);
@@ -299,6 +321,39 @@ export function RaceScreen(props: Props) {
       onPanResponderRelease: (_e, g) => {
         // Tap (no real drag): left half = one lane left, right half = one lane right.
         if (Math.abs(g.dx) < 12 && Math.abs(g.dy) < 12) moveLane(g.moveX < W / 2 ? -1 : 1);
+      },
+    }),
+  ).current;
+
+  // Round joystick (bottom-left): drag the knob left/right to steer —
+  // wired to the same lane-change logic as tap-half / drag steering.
+  // The knob steers once per crossing past the threshold, then resets
+  // when it comes back to centre, so one drag can zig-zag lanes.
+  const joyDirRef = useRef(0);
+  const joyPadXRef = useRef(0);
+  const joyPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { joyDirRef.current = 0; },
+      onPanResponderMove: (_e, g) => {
+        const nx = Math.max(-1, Math.min(1, g.dx / 44));
+        setKnobX(nx);
+        const dir = nx > 0.55 ? 1 : nx < -0.55 ? -1 : 0;
+        if (dir !== 0 && joyDirRef.current !== dir) {
+          joyDirRef.current = dir;
+          moveLane(dir as -1 | 1);
+        } else if (dir === 0) {
+          joyDirRef.current = 0;
+        }
+      },
+      onPanResponderRelease: (_e, g) => {
+        setKnobX(0);
+        joyDirRef.current = 0;
+        // Tap (no real drag): left half of the pad = one lane left, right half = one lane right.
+        if (Math.abs(g.dx) < 12 && Math.abs(g.dy) < 12) {
+          moveLane(g.moveX < joyPadXRef.current + JOY / 2 ? -1 : 1);
+        }
       },
     }),
   ).current;
@@ -372,10 +427,15 @@ export function RaceScreen(props: Props) {
   const spawnRivals = () => {
     // 9 real rivals, spread down the road ahead of you, each in a
     // lane with a gap. Passing one is what moves your place up.
+    // Three rows of three (one per lane), ~36px apart down the road:
+    // the old formula divided the (small) road band by 9, so all 9
+    // rivals spawned within ~10px of each other — a pile of cars at
+    // the horizon. Rows read as depth (a car behind another in its
+    // lane), which is how a starting grid looks.
     const lanes = [0, 1, 2, 0, 1, 2, 0, 1, 2];
     const colors = level.trafficColors;
     lanes.forEach((laneIdx, i) => {
-      const y = HORIZON + 40 + i * ((PLAYER_Y - HORIZON - 160) / RIVALS_TOTAL);
+      const y = HORIZON + 40 + Math.floor(i / 3) * 36 + (i % 3) * 5;
       entitiesRef.current = [...entitiesRef.current, {
         id: idRef.current++, kind: 'rival', lane: laneIdx, y,
         color: colors[i % colors.length], rivalPlace: RIVALS_TOTAL - i,
@@ -401,7 +461,7 @@ export function RaceScreen(props: Props) {
   useEffect(() => {
     if (countdown <= 0) {
       setGoFlash(true);
-      pokeToast('👆 Tap left / right to steer!');
+      pokeToast('👆 Drag the joystick to steer!');
       music.start();
       spawnRivals();
       // Pre-spawned traffic starts at the horizon but ONLY in the side
@@ -563,6 +623,11 @@ export function RaceScreen(props: Props) {
         kept.push({ ...e, y, xShift });
       }
       entitiesRef.current = kept;
+      // Sync the rendered entities with the refs (the loop only ever
+      // wrote the ref, so stars, traffic, cones and rivals were being
+      // collected / hit while INVISIBLE — the road looked empty even
+      // as the star count climbed and rivals were "passed").
+      setEntities(kept);
       // Gap check must follow the road: the last object in each lane
       // is the LOWEST one still on screen (0 = lane is clear).
       const lowest: Record<number, number> = { 0: 0, 1: 0, 2: 0 };
@@ -575,6 +640,13 @@ export function RaceScreen(props: Props) {
       balloonsRef.current = nextBalloons;
       heartsRef.current = nextHearts;
       scoreRef.current = nextScore;
+      // Sync the displayed HUD numbers with the refs (they were only
+      // ever written to the refs, so the star count and hearts on the
+      // HUD froze at their starting values while lap/position moved).
+      setStars(nextStars);
+      setBalloons(nextBalloons);
+      setHearts(nextHearts);
+      setScore(nextScore);
 
       // Laps: a real checkered lap line sweeps down the road at each
       // lap boundary (star goal split in thirds).
@@ -644,8 +716,18 @@ export function RaceScreen(props: Props) {
   return (
     <LinearGradient colors={level.sky} style={styles.bg}>
       <StatusBar hidden={!paused} />
-      {/* Sun (day maps) or moon + stars (night maps) — never both. */}
-      {level.night ? (
+      {/* Sunset map: the photographic sunset sky (palms, lamps, orange
+          clouds) fills the sky down to just past the horizon; the
+          drawn road + dusk ground cover everything below it. The
+          photo already carries the setting sun, so no sun emoji and
+          no emoji hill band on this map. */}
+      {level.sunset ? (
+        <Image
+          source={SUNSET_SKY}
+          style={{ position: 'absolute', top: 0, left: 0, width: W, height: HORIZON + 48 }}
+          resizeMode="cover"
+        />
+      ) : level.night ? (
         <>
           <Text style={[styles.moon, { left: W * 0.28, top: insets.top + 6 }]}>🌙</Text>
           <Text style={[styles.nightStars, { left: W * 0.28 + 52, top: insets.top + 20 }]}>✦ ✦</Text>
@@ -654,17 +736,21 @@ export function RaceScreen(props: Props) {
       ) : (
         <Text style={[styles.sun, { left: W * 0.28, top: insets.top + 2, fontSize: is3d ? 34 : 30 }]}>☀️</Text>
       )}
-      {/* Horizon hills — a distant silhouette band, so the sky is not a bare void. */}
-      <View style={{ position: 'absolute', left: 0, right: 0, top: HORIZON - 26, flexDirection: 'row', justifyContent: 'space-around', opacity: is3d ? 0.9 : 0.65 }}>
-        <Text style={{ fontSize: 26 }}>{level.night ? '🏙️' : '⛰️'}</Text>
-        <Text style={{ fontSize: 20 }}>{level.night ? '🌙' : '🌲'}</Text>
-        <Text style={{ fontSize: 28 }}>{level.night ? '🏙️' : '⛰️'}</Text>
-        <Text style={{ fontSize: 20 }}>{level.night ? '⭐' : '🌲'}</Text>
-        <Text style={{ fontSize: 26 }}>{level.night ? '🏙️' : '⛰️'}</Text>
-      </View>
+      {/* Horizon hills — a distant silhouette band, so the sky is not a bare void (not on the sunset map: the photo has its own). */}
+      {level.sunset ? null : (
+        <View style={{ position: 'absolute', left: 0, right: 0, top: HORIZON - 26, flexDirection: 'row', justifyContent: 'space-around', opacity: is3d ? 0.9 : 0.65 }}>
+          <Text style={{ fontSize: 26 }}>{level.night ? '🏙️' : '⛰️'}</Text>
+          <Text style={{ fontSize: 20 }}>{level.night ? '🌙' : '🌲'}</Text>
+          <Text style={{ fontSize: 28 }}>{level.night ? '🏙️' : '⛰️'}</Text>
+          <Text style={{ fontSize: 20 }}>{level.night ? '⭐' : '🌲'}</Text>
+          <Text style={{ fontSize: 26 }}>{level.night ? '🏙️' : '⛰️'}</Text>
+        </View>
+      )}
       {/* Ground: flat colour + scrolling grass tufts, so the ground visibly moves. */}
       <View style={[styles.ground, { top: HORIZON, backgroundColor: level.grass }]} />
-      {tufts.map((t) => {
+      {/* No grass tufts on the sunset map — green sprouts look wrong
+          on the dusk ground; the palms + lamps are the roadside there. */}
+      {level.sunset ? null : tufts.map((t) => {
         const s = depthScale(t.y);
         const x = W / 2 + t.side * (roadHalfOuterAt(t.y) + t.offset * s);
         return (
@@ -677,8 +763,10 @@ export function RaceScreen(props: Props) {
       {scenery.map((s) => {
         const sc = depthScale(s.y);
         const x = W / 2 + s.side * (roadHalfOuterAt(s.y) + s.offset * sc);
+        // Sunset palms + lamps read bigger, like the mockup's roadside.
+        const fs = level.sunset ? 34 * sc + 14 : 26 * sc + 10;
         return (
-          <Text key={'sc' + s.id} style={{ position: 'absolute', left: x - 18 * sc, top: s.y - 20 * sc, fontSize: 26 * sc + 10, zIndex: 1 }}>
+          <Text key={'sc' + s.id} style={{ position: 'absolute', left: x - 18 * sc, top: s.y - 20 * sc, fontSize: fs, zIndex: 1 }}>
             {s.emoji}
           </Text>
         );
@@ -741,8 +829,9 @@ export function RaceScreen(props: Props) {
           );
         }
         if (e.kind === 'traffic' || e.kind === 'rival') {
-          // Rear-view cars ahead of you — same perspective as the player.
-          const w = Math.max(34, 56 * s);
+          // Rear-view cars ahead of you — same perspective as the player,
+          // big enough to read like the mockup's blue + yellow rivals.
+          const w = Math.max(40, 110 * s);
           return (
             <View key={e.id} style={{ position: 'absolute', left: x - w / 2 + (e.xShift ?? 0), top: e.y, width: w, alignItems: 'center' }}>
               <CarView color={e.color ?? '#F97316'} accent="#FCA5A5" width={w} mode={props.viewMode} angle="rear" stripe="#FFFFFF" vehicleId={e.vehicleId ?? 'car'} />
@@ -762,60 +851,93 @@ export function RaceScreen(props: Props) {
             </View>
           );
         }
+        // Golden 3D-looking stars, large and glowing like the mockup —
+        // rendering only; collection logic and star goal are unchanged.
+        const isStar = e.kind === 'star';
         return (
-          <View key={e.id} style={{ position: 'absolute', left: x - 22 + (e.xShift ?? 0), top: e.y, width: 44, alignItems: 'center', transform: [{ scale: s }] }}>
-            <Text style={{ fontSize: e.kind === 'star' ? 30 : 28 }}>{entityEmoji(e)}</Text>
+          <View key={e.id} style={{ position: 'absolute', left: x - 32 + (e.xShift ?? 0), top: e.y, width: 64, alignItems: 'center', transform: [{ scale: s }] }}>
+            <Text
+              style={{
+                fontSize: isStar ? 46 : 28,
+                textShadowColor: isStar ? '#FFD700' : 'rgba(0,0,0,0.4)',
+                textShadowRadius: isStar ? 16 : 4,
+                textShadowOffset: { width: 0, height: 0 },
+              }}
+            >
+              {entityEmoji(e)}
+            </Text>
           </View>
         );
       })}
 
       {/* Player car — rear view, anchored so wheels + exhaust stay
-          inside the box; the driver face sits INSIDE the rear window. */}
+          inside the box. 'race' / 'police' use their photo sprite
+          (contain, inside the same CAR_W x CAR_H box — the hit box is
+          unchanged); every other vehicle keeps the drawn rear CarView
+          with the driver face inside the rear window. */}
       <View style={{ position: 'absolute', left: visualX - CAR_W / 2, top: PLAYER_Y, width: CAR_W, height: CAR_H, zIndex: 3 }}>
-        <View style={{ position: 'absolute', top: 14, left: CAR_W / 2 - CAR_W * 0.15, width: CAR_W * 0.3, height: CAR_W * 0.3, zIndex: 3, overflow: 'hidden', borderRadius: 999, backgroundColor: '#1E293B', borderWidth: 2, borderColor: '#0F172A' }}>
-          <DriverFace driver={props.driver} mode={props.viewMode} size={CAR_W * 0.3} />
-        </View>
-        <View style={{ position: 'absolute', bottom: 0, left: 0 }}>
-          <CarView color={props.skinColor} accent={props.skinAccent} width={CAR_W} mode={props.viewMode} angle="rear" stripe={skin.stripe} vehicleId={props.vehicleId} flashing={flash} shakeX={shakeX} boosting={boosting} />
-        </View>
+        {RACE_PHOTOS[props.vehicleId] ? (
+          <>
+            <View style={{ position: 'absolute', bottom: 0, left: 0, transform: [{ translateX: shakeX }] }}>
+              <Image source={RACE_PHOTOS[props.vehicleId]} style={{ width: CAR_W, height: CAR_H }} resizeMode="contain" />
+            </View>
+            {boosting ? <Text style={{ position: 'absolute', bottom: -6, alignSelf: 'center', fontSize: 22 }}>🔥</Text> : null}
+            {/* Driver face as a small circle overlapping the top-centre
+                of the photo car (the photo's rear window is dark glass). */}
+            <View style={{ position: 'absolute', top: 4, left: CAR_W / 2 - CAR_W * 0.14, width: CAR_W * 0.28, height: CAR_W * 0.28, zIndex: 3, overflow: 'hidden', borderRadius: 999, backgroundColor: '#1E293B', borderWidth: 2, borderColor: '#0F172A' }}>
+              <DriverFace driver={props.driver} mode={props.viewMode} size={CAR_W * 0.28} />
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={{ position: 'absolute', top: 14, left: CAR_W / 2 - CAR_W * 0.15, width: CAR_W * 0.3, height: CAR_W * 0.3, zIndex: 3, overflow: 'hidden', borderRadius: 999, backgroundColor: '#1E293B', borderWidth: 2, borderColor: '#0F172A' }}>
+              <DriverFace driver={props.driver} mode={props.viewMode} size={CAR_W * 0.3} />
+            </View>
+            <View style={{ position: 'absolute', bottom: 0, left: 0 }}>
+              <CarView color={props.skinColor} accent={props.skinAccent} width={CAR_W} mode={props.viewMode} angle="rear" stripe={skin.stripe} vehicleId={props.vehicleId} flashing={flash} shakeX={shakeX} boosting={boosting} />
+            </View>
+          </>
+        )}
         {is3d && <View style={{ position: 'absolute', bottom: -4, left: CAR_W * 0.06, right: CAR_W * 0.06, height: 8, backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 999 }} />}
       </View>
 
-      {/* HUD — top-left: REAL place (rivals passed) / LAP / timer */}
+      {/* HUD — top-left, exactly like the mockup: big place + LAP under it.
+          (Timer + score still run — they show on the Results screen.) */}
       <View style={[styles.hudLeft, styles.hudPill, { top: insets.top + 6, left: insets.left + 10 }]}>
         <Text style={styles.positionText}>{ordinal(position)}</Text>
-        <Text style={styles.hudSmall}>of 10 racers • LAP {lap}/3 • {mm}:{ss}</Text>
-        <Text style={styles.hudSmall}>⭐ {stars}/{level.starGoal} • 🏆 {score}</Text>
-        <Text style={styles.hudSmall}>{heartLine(hearts)}</Text>
+        <Text style={styles.lapText}>LAP {lap}/3</Text>
       </View>
 
-      {/* HUD — top-centre: race progress (distance + stars) to the flag */}
+      {/* HUD — top-centre: star progress bar with the star count, like
+          the mockup ("⭐ 14 / 25"). No map/difficulty label bar — the
+          star bar IS the progress. */}
       <View style={[styles.progressWrap, { top: insets.top + 10 }]}>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${raceProgress * 100}%` }]} />
           <Text style={[styles.progressCar, { left: `${raceProgress * 88}%` }]}>🚗</Text>
           <Text style={[styles.progressFlag, { right: -6 }]}>🏁</Text>
         </View>
-        <Text style={styles.progressLabel}>{level.icon} {level.name} • {diff.label} • Race progress</Text>
+        <Text style={styles.starCount}>⭐ {stars} / {level.starGoal}</Text>
       </View>
 
-      {/* HUD — top-right: big speed + speed bar */}
-      <View style={[styles.hudRight, styles.hudPill, { top: insets.top + 6, right: insets.right + 10 }]}>
-        <Text style={[styles.mphText, boosting && styles.mphBoost]}>{mph}<Text style={styles.mphUnit}> MPH</Text></Text>
-        <View style={styles.speedTrack}>
-          <View style={[styles.speedFill, { width: `${Math.min(100, (mph / 280) * 100)}%` }]} />
-        </View>
-        <View style={styles.hudBtns}>
-          <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleMusic}>
-            <Text style={styles.roundText}>{props.musicOn ? '🎵' : '🔇'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleSfx}>
-            <Text style={styles.roundText}>{props.sfxOn ? '🔊' : '🔇'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.roundBtn} onPress={props.onQuit}>
-            <Text style={styles.roundText}>🏠</Text>
-          </TouchableOpacity>
-        </View>
+      {/* HUD — top-right: hearts + pause first (mockup), then the rest. */}
+      <View style={[styles.hudTopRight, { top: insets.top + 6, right: insets.right + 10, alignItems: 'center' }]}>
+        <Text style={styles.heartsText}>{heartLine(hearts)}</Text>
+        <TouchableOpacity style={styles.roundBtn} onPress={() => setPaused((p) => !p)}>
+          <Text style={styles.roundText}>{paused ? '▶' : '⏸'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.roundBtn} onPress={() => { playSfx('horn'); setToast('📣 Beep beep!'); setTimeout(() => setToast(''), 900); }}>
+          <Text style={styles.roundText}>📣</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleMusic}>
+          <Text style={styles.roundText}>{props.musicOn ? '🎵' : '🔇'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleSfx}>
+          <Text style={styles.roundText}>{props.sfxOn ? '🔊' : '🔇'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.roundBtn} onPress={props.onQuit}>
+          <Text style={styles.roundText}>🏠</Text>
+        </TouchableOpacity>
       </View>
 
       {toast ? <Text style={[styles.toast, { bottom: insets.bottom + 110 }]}>{toast}</Text> : null}
@@ -826,24 +948,33 @@ export function RaceScreen(props: Props) {
         </View>
       )}
 
-      {/* Left thumb steering — big LEFT / RIGHT arrows with labels,
-          raised above the collection line so stars never slide under a thumb. */}
-      <View style={[styles.joystick, { left: insets.left + 10, bottom: insets.bottom + 108 }]}>
-        <TouchableOpacity style={[styles.steerBtn, { width: BTN, height: BTN, borderRadius: BTN / 2 }]} onPress={() => moveLane(-1)}>
-          <Text style={styles.steerArrow}>⬅️</Text>
-          <Text style={styles.steerLabel}>LEFT</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.steerBtn, { width: BTN, height: BTN, borderRadius: BTN / 2 }]} onPress={() => moveLane(1)}>
-          <Text style={styles.steerArrow}>➡️</Text>
-          <Text style={styles.steerLabel}>RIGHT</Text>
-        </TouchableOpacity>
+      {/* Round joystick, bottom-left (mockup): drag the knob left/right
+          to steer; tap its left/right half for one lane. Replaces the
+          big LEFT / RIGHT buttons. Tap-half + drag steering on the road
+          itself still work (see the full-screen pan responder). */}
+      <View
+        style={[styles.joyPad, { left: insets.left + 10, bottom: insets.bottom + 16, width: JOY, height: JOY, borderRadius: JOY / 2 }]}
+        onLayout={(e) => { joyPadXRef.current = e.nativeEvent.layout.x; }}
+        {...joyPan.panHandlers}
+      >
+        <View style={[styles.joyKnob, { width: JOY * 0.44, height: JOY * 0.44, borderRadius: (JOY * 0.44) / 2, transform: [{ translateX: knobX * JOY * 0.26 }] }]}>
+          <Text style={styles.joyKnobText}>↔️</Text>
+        </View>
+        <Text style={styles.joyHint}>STEER</Text>
       </View>
 
-      {/* Right thumb buttons — horn + BOOST (hold) + pause, also raised. */}
-      <View style={[styles.rightBtns, { right: insets.right + 10, bottom: insets.bottom + 108 }]}>
-        <TouchableOpacity style={[styles.hornBtn, { width: BTN, height: BTN, borderRadius: BTN / 2 }]} onPress={() => { playSfx('horn'); setToast('📣 Beep beep!'); setTimeout(() => setToast(''), 900); }}>
-          <Text style={styles.hornText}>📣</Text>
-        </TouchableOpacity>
+      {/* Bottom-right (mockup): big italic MPH number with "MPH" under
+          it, then the round orange BOOST beside it — with at least
+          26px clearance from the right edge, so the number is never
+          clipped like in proof2. */}
+      <View style={[styles.mphCluster, { right: insets.right + 26, bottom: insets.bottom + 18 }]}>
+        <View style={styles.mphBox}>
+          <Text style={[styles.mphText, boosting && styles.mphBoost]}>{mph}</Text>
+          <Text style={styles.mphUnitText}>MPH</Text>
+          <View style={styles.speedTrack}>
+            <View style={[styles.speedFill, { width: `${Math.min(100, (mph / 280) * 100)}%` }]} />
+          </View>
+        </View>
         <TouchableOpacity
           style={[styles.boostBtn, { width: BTN + 12, height: BTN + 12, borderRadius: (BTN + 12) / 2 }, boosting && styles.boostBtnActive]}
           onPressIn={() => setBoost(true)}
@@ -852,9 +983,6 @@ export function RaceScreen(props: Props) {
         >
           <Text style={styles.boostText}>🚀</Text>
           <Text style={styles.boostLabel}>BOOST</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.pauseBtn, { width: BTN - 16, height: BTN - 16, borderRadius: (BTN - 16) / 2 }]} onPress={() => setPaused((p) => !p)}>
-          <Text style={styles.hornText}>{paused ? '▶' : '⏸'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -883,21 +1011,24 @@ const styles = StyleSheet.create({
   speedLine: { position: 'absolute', width: 5, backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 3 },
   hudLeft: { position: 'absolute', zIndex: 5 },
   hudPill: { backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12 },
-  positionText: { fontSize: 36, fontWeight: '900', fontStyle: 'italic', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  positionText: { fontSize: 44, fontWeight: '900', fontStyle: 'italic', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  lapText: { fontSize: 18, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   hudSmall: { fontSize: 15, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
-  progressWrap: { position: 'absolute', left: '32%', right: '32%', alignItems: 'center', zIndex: 5 },
-  progressTrack: { width: '100%', height: 12, backgroundColor: 'rgba(8,10,16,0.66)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', borderRadius: 6, overflow: 'visible' },
+  progressWrap: { position: 'absolute', left: '30%', right: '30%', flexDirection: 'row', alignItems: 'center', gap: 8, zIndex: 5 },
+  progressTrack: { flex: 1, height: 12, backgroundColor: 'rgba(8,10,16,0.66)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', borderRadius: 6, overflow: 'visible' },
   progressFill: { height: '100%', backgroundColor: '#FF8A1A', borderRadius: 6, shadowColor: '#FFAA28', shadowOpacity: 0.8, shadowRadius: 6 },
   progressCar: { position: 'absolute', top: -14, fontSize: 18 },
   progressFlag: { position: 'absolute', top: -16, fontSize: 18 },
-  progressLabel: { fontSize: 13, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4, marginTop: 4 },
-  hudRight: { position: 'absolute', alignItems: 'flex-end', zIndex: 5 },
-  mphText: { fontSize: 46, fontWeight: '900', fontStyle: 'italic', color: '#fff', textShadowColor: 'rgba(255,150,50,0.45)', textShadowRadius: 8 },
+  starCount: { fontSize: 16, fontWeight: '900', color: '#fff', backgroundColor: 'rgba(8,10,16,0.66)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  heartsText: { fontSize: 18, marginRight: 2 },
+  hudTopRight: { position: 'absolute', flexDirection: 'row', gap: 6, zIndex: 5 },
+  mphCluster: { position: 'absolute', flexDirection: 'row', gap: 10, alignItems: 'flex-end', zIndex: 5 },
+  mphBox: { alignItems: 'flex-end' },
+  mphText: { fontSize: 54, fontWeight: '900', fontStyle: 'italic', color: '#fff', textShadowColor: 'rgba(255,150,50,0.45)', textShadowRadius: 8, lineHeight: 54 },
   mphBoost: { color: '#FFC531' },
-  mphUnit: { fontSize: 16 },
+  mphUnitText: { fontSize: 16, fontWeight: '900', color: '#fff', textAlign: 'right', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   speedTrack: { width: 130, height: 10, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 5, overflow: 'hidden', marginTop: 2 },
   speedFill: { height: '100%', backgroundColor: '#FFC531' },
-  hudBtns: { flexDirection: 'row', gap: 6, marginTop: 6 },
   roundBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
   roundText: { fontSize: 17 },
   toast: { position: 'absolute', left: 0, right: 0, textAlign: 'center', fontWeight: '900', color: '#fff', fontSize: 18, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
@@ -905,22 +1036,20 @@ const styles = StyleSheet.create({
   countdown: { position: 'absolute', top: '28%', left: 0, right: 0, alignItems: 'center', zIndex: 8 },
   countdownText: { fontSize: 90, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 8 },
   countdownSub: { fontSize: 20, fontWeight: '800', color: '#fff' },
-  joystick: {
-    position: 'absolute', flexDirection: 'row', gap: 10, backgroundColor: 'rgba(8,10,16,0.45)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
-    borderRadius: 999, padding: 10, zIndex: 5,
+  // Round joystick pad (mockup): dark glass circle, orange knob that
+  // slides left/right with the drag, STEER label underneath.
+  joyPad: {
+    position: 'absolute', backgroundColor: 'rgba(8,10,16,0.55)',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center', justifyContent: 'center', zIndex: 5,
   },
-  steerBtn: { backgroundColor: '#FF6A00', borderBottomWidth: 5, borderBottomColor: '#8F3200', alignItems: 'center', justifyContent: 'center', elevation: 4 },
-  steerArrow: { fontSize: 26 },
-  steerLabel: { fontSize: 10, fontWeight: '900', color: '#fff' },
-  rightBtns: { position: 'absolute', flexDirection: 'row', gap: 10, alignItems: 'center', zIndex: 5 },
-  hornBtn: { backgroundColor: '#EF4444', borderBottomWidth: 5, borderBottomColor: '#991B1B', alignItems: 'center', justifyContent: 'center', elevation: 4 },
-  hornText: { fontSize: 28 },
+  joyKnob: { backgroundColor: '#FF6A00', borderBottomWidth: 5, borderBottomColor: '#8F3200', alignItems: 'center', justifyContent: 'center', elevation: 4, shadowColor: '#FF6A00', shadowOpacity: 0.5, shadowRadius: 8 },
+  joyKnobText: { fontSize: 22, color: '#fff' },
+  joyHint: { position: 'absolute', bottom: 10, fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.75)', letterSpacing: 1 },
   boostBtn: { backgroundColor: '#FF6A00', borderBottomWidth: 5, borderBottomColor: '#8F3200', alignItems: 'center', justifyContent: 'center', elevation: 5, shadowColor: '#FF6A00', shadowOpacity: 0.5, shadowRadius: 10 },
   boostBtnActive: { backgroundColor: '#FFC531', borderBottomColor: '#B45309' },
   boostText: { fontSize: 30 },
   boostLabel: { fontSize: 11, fontWeight: '900', color: '#fff' },
-  pauseBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center', elevation: 3 },
   pausedOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30,
     backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center',

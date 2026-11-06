@@ -12,14 +12,14 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  Animated, Image, ImageBackground, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LEVELS, isLevelUnlocked } from '../data/levels';
 import { DRIVERS, driverById } from '../data/drivers';
-import { PAINTS, SKINS, VEHICLES, paintById, skinById, vehicleById } from '../data/skins';
+import { PAINTS, SKINS, VEHICLES, paintById, skinById, vehicleById, type Vehicle } from '../data/skins';
 import { UPGRADES, nextUpgradeCost, type UpgradeId } from '../data/upgrades';
 import { CarView } from '../components/CarView';
 import { SLEEK_BG } from '../theme';
@@ -64,6 +64,52 @@ interface Props {
 
 const NOT_ENOUGH = 'Not enough coins — play more races or ask a parent.';
 
+// Photo showroom assets (assets/cars/): the mockup's own hero + garage
+// photos, plus generated side-profile shots. Static requires so Metro
+// bundles them on native and web.
+const HOME_HERO = require('../../assets/cars/home-hero.jpg');
+const GARAGE_RED = require('../../assets/cars/garage-red.jpg');
+const GARAGE_MIDNIGHT = require('../../assets/cars/garage-midnight.jpg');
+
+/** Hue family of a hex colour: 'red' covers red/orange/gold, 'blue'
+ *  covers blues; green / purple / grey / white / black match no photo. */
+function colorFamily(hex: string): 'red' | 'blue' | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const r = parseInt(m[1].slice(0, 2), 16) / 255;
+  const g = parseInt(m[1].slice(2, 4), 16) / 255;
+  const b = parseInt(m[1].slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max - min < 0.12) return null;
+  let hue = 0;
+  if (max === r) hue = ((g - b) / (max - min)) * 60;
+  else if (max === g) hue = 120 + ((b - r) / (max - min)) * 60;
+  else hue = 240 + ((r - g) / (max - min)) * 60;
+  if (hue < 0) hue += 360;
+  if (hue < 60 || hue >= 330) return 'red';
+  if (hue >= 195 && hue <= 250) return 'blue';
+  return null;
+}
+
+/** Showroom photo for a paint colour, or null (fall back to the drawn CarView). */
+function photoForColor(hex: string) {
+  const f = colorFamily(hex);
+  return f === 'red' ? GARAGE_RED : f === 'blue' ? GARAGE_MIDNIGHT : null;
+}
+
+/** Showroom class label per vehicle (mockup style: "NIGHT SERIES · RARE"). */
+const VEHICLE_CLASS: Record<string, string> = {
+  race: 'RACE SERIES', car: 'STREET SERIES', police: 'POLICE SERIES',
+  fire: 'RESCUE SERIES', ambulance: 'RESCUE SERIES', bus: 'CITY SERIES',
+  schoolbus: 'CITY SERIES', taxi: 'CITY SERIES', rickshaw: 'CITY SERIES',
+  icecream: 'TREAT SERIES', monster: 'MONSTER SERIES', duck: 'FUN SERIES',
+};
+
+function vehicleRarity(v: Vehicle): string {
+  return v.price >= 800 ? 'RARE' : v.price >= 400 ? 'SUPER' : v.price > 0 ? 'CLASSIC' : 'STARTER';
+}
+
 const DIFF_KID: Record<DifficultyId, { label: string; face: string }> = {
   low: { label: 'Easy', face: '🐢' },
   mid: { label: 'Super', face: '😄' },
@@ -82,6 +128,9 @@ export function HomeScreen(props: Props) {
   const [pickedSkin, setPickedSkin] = useState(profile.equippedSkin);
   const [shopMsg, setShopMsg] = useState(props.dailyBonus > 0 ? `🎉 Daily bonus! +${props.dailyBonus} coins!` : '');
   const [parentsOpen, setParentsOpen] = useState(false);
+  // Home pickers collapse behind their chips (tap to expand) so the
+  // hero photo dominates; null = no picker open.
+  const [openPicker, setOpenPicker] = useState<'driver' | 'map' | 'difficulty' | null>(null);
   // Locked-map purchase needs a CONFIRM step: first tap selects +
   // asks, second tap on the same card buys. No more one-tap spends.
   const [pendingBuyLevel, setPendingBuyLevel] = useState<number | null>(null);
@@ -125,6 +174,199 @@ export function HomeScreen(props: Props) {
     { id: 'maps', label: '🗺️ Maps' },
     { id: 'drivers', label: '🐶 Drivers' },
   ];
+
+  // --- TRACKS (home) — the mockup layout: the hero photo fills the
+  // screen, title top-left, coins + sound top-right, current picks as
+  // chips mid-left, GARAGE / MAPS / SHOP dock bottom-left, giant PLAY
+  // bottom-right. Pickers collapse behind their chips (tap to expand);
+  // every handler below is the same one the old rows used.
+  if (panel === 'tracks') {
+    const currentLevel = LEVELS[levelId - 1];
+    const diffKid = DIFF_KID[difficulty];
+    return (
+      <ImageBackground source={HOME_HERO} style={styles.bg} resizeMode="cover">
+        <LinearGradient colors={['rgba(7,8,12,0.80)', 'rgba(7,8,12,0.10)', 'rgba(7,8,12,0.08)', 'rgba(7,8,12,0.85)']} style={styles.bg}>
+          <View style={[styles.heroRoot, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 10, paddingLeft: insets.left + 14, paddingRight: insets.right + 14 }]}>
+            {/* Top: title left, coins/gems/trophies + sound + Parents right */}
+            <View style={styles.heroTop}>
+              <View>
+                <Text style={[styles.title, compact && { fontSize: 30 }]}>KIDS CAR</Text>
+                <Text style={[styles.title2, compact && { fontSize: 30 }]}>RACING</Text>
+              </View>
+              <View style={styles.heroTopRight}>
+                <View style={styles.badges}>
+                  <Text style={styles.badge}>🪙 {profile.points}</Text>
+                  <Text style={styles.badge}>💎 {profile.gems}</Text>
+                  <Text style={styles.badge}>🏆 {profile.trophies}</Text>
+                </View>
+                <View style={styles.toggleRow}>
+                  <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleMusic}>
+                    <Text style={styles.roundText}>{props.musicOn ? '🎵' : '🔇'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.roundBtn} onPress={props.onToggleSfx}>
+                    <Text style={styles.roundText}>{props.sfxOn ? '🔊' : '🔇'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.parentsBtn} onPress={() => setParentsOpen(true)}>
+                    <Text style={styles.parentsBtnText}>👨‍👩‍👧 Parents</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Middle-left: name + current picks as chips (tap a chip to change it) */}
+            <View style={styles.chipRow}>
+              <TextInput
+                style={styles.nameInputCompact}
+                placeholder="Your name"
+                placeholderTextColor="#94A3B8"
+                value={name}
+                maxLength={14}
+                onChangeText={setName}
+                onBlur={() => props.onSaveName(name.trim())}
+                returnKeyType="done"
+                onSubmitEditing={() => props.onSaveName(name.trim())}
+              />
+              <TouchableOpacity
+                style={[styles.pickChip, openPicker === 'driver' && styles.pickChipOpen]}
+                onPress={() => setOpenPicker(openPicker === 'driver' ? null : 'driver')}
+              >
+                <DriverFace driver={selectedDriver} mode={viewMode} size={30} />
+                <Text style={styles.pickChipText}>{selectedDriver.faceEmoji} {selectedDriver.name}</Text>
+                <Text style={styles.pickChipSub}>{selectedDriver.abilityIcon} {selectedDriver.abilityName}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pickChip, openPicker === 'map' && styles.pickChipOpen]}
+                onPress={() => setOpenPicker(openPicker === 'map' ? null : 'map')}
+              >
+                <Text style={styles.pickChipIcon}>{currentLevel.icon}</Text>
+                <Text style={styles.pickChipText}>{currentLevel.name}</Text>
+                <Text style={styles.pickChipSub}>Level {currentLevel.id}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pickChip, openPicker === 'difficulty' && styles.pickChipOpen]}
+                onPress={() => setOpenPicker(openPicker === 'difficulty' ? null : 'difficulty')}
+              >
+                <Text style={styles.pickChipIcon}>{diffKid.face}</Text>
+                <Text style={styles.pickChipText}>{diffKid.label}</Text>
+                <Text style={styles.pickChipSub}>❤️ {DIFFICULTIES[difficulty].hearts}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {trying ? <Text style={[styles.trialChip, { alignSelf: 'flex-start', marginTop: 6 }]}>🎁 One race in the {driving.name}!</Text> : null}
+            {shopMsg ? <Text style={[styles.shopMsg, { marginTop: 4, textAlign: 'left' }]}>{shopMsg}</Text> : null}
+
+            {/* Expanded picker — same cards + handlers as the old rows, compact */}
+            {openPicker === 'driver' && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickerPanel}>
+                {DRIVERS.map((d) => {
+                  const owned = profile.ownedDrivers.includes(d.id);
+                  const isSelected = profile.selectedDriver === d.id;
+                  return (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={[styles.gameCard, styles.pickerCard, isSelected && styles.selected, !owned && styles.locked]}
+                      onPress={() => {
+                        if (owned) { props.onSelectDriver(d.id); setShopMsg(`${d.name} jumps in! ${d.tagline}`); }
+                        else if (profile.points >= d.price) { props.onBuyDriver(d.id); setShopMsg(`${d.name} joined your team! 🎉`); }
+                        else { setShopTab('drivers'); setPanel('garage'); setShopMsg(`Get ${d.name} in the Garage! Need ${d.price - profile.points} more coins.`); }
+                      }}
+                    >
+                      <DriverFace driver={d} mode={viewMode} size={30} />
+                      <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
+                      <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to drive' : `🪙 ${d.price}`}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            {openPicker === 'map' && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickerPanel}>
+                {LEVELS.map((lv) => {
+                  const locked = !isLevelUnlocked(lv.id, profile.unlockedLevel, profile.purchasedLevels, profile.unlockAll);
+                  const selected = lv.id === levelId;
+                  return (
+                    <TouchableOpacity
+                      key={lv.id}
+                      onPress={() => {
+                        if (!locked) { setLevelId(lv.id); setShopMsg(lv.tagline); }
+                        else { setShopTab('maps'); setPanel('garage'); setShopMsg(`${lv.name} is locked. Win the track before it, or unlock it here.`); }
+                      }}
+                      style={[styles.gameCard, styles.pickerCard, selected && styles.selected, locked && styles.locked]}
+                    >
+                      <Text style={styles.levelIconCompact}>{locked ? '🔒' : lv.icon}</Text>
+                      <Text style={styles.cardName}>{lv.name}</Text>
+                      <Text style={styles.cardSub}>{locked ? 'Locked' : `⭐ ${lv.starGoal}`}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            {openPicker === 'difficulty' && (
+              <View style={styles.pickerPanel}>
+                {DIFFICULTY_ORDER.map((id) => {
+                  const d = DIFFICULTIES[id];
+                  const kid = DIFF_KID[id];
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      onPress={() => setDifficulty(id)}
+                      style={[styles.diffBtn, styles.pickerDiffBtn, difficulty === id && styles.selected]}
+                    >
+                      <Text style={styles.diffLabel}>{kid.face} {kid.label}</Text>
+                      <Text style={styles.cardSub}>❤️ {d.hearts}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={{ flex: 1 }} />
+
+            {/* Bottom dock: GARAGE / MAPS / SHOP left, giant PLAY right */}
+            <View style={styles.dock}>
+              <View style={styles.dockLeft}>
+                <TouchableOpacity style={styles.dockBtn} onPress={() => { setShopTab('cars'); setPanel('garage'); }}>
+                  <Text style={styles.dockBtnText}>🛠️ GARAGE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.dockBtn} onPress={() => { setShopTab('maps'); setPanel('garage'); }}>
+                  <Text style={styles.dockBtnText}>🗺️ MAPS</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.dockBtn} onPress={() => { setShopTab('cars'); setPanel('garage'); }}>
+                  <Text style={styles.dockBtnText}>🛒 SHOP</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.playBtnHero}
+                onPress={() => {
+                  props.onSaveName(name.trim());
+                  props.onPlay(levelId, difficulty, driving.id);
+                }}
+              >
+                <Text style={[styles.playText, compact && { fontSize: 26 }]}>▶  RACE!</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.racingNow}>
+              {selectedDriver.faceEmoji} {selectedDriver.name}  •  {currentLevel.icon} {currentLevel.name}  •  {diffKid.face} {diffKid.label}
+            </Text>
+          </View>
+        </LinearGradient>
+        {parentsOpen && (
+          <ParentsShop
+            coins={profile.points}
+            gems={profile.gems}
+            unlockAll={profile.unlockAll}
+            adFree={profile.adFree}
+            grantedTransactions={profile.grantedTransactions}
+            onGrantCoins={props.onGrantCoins}
+            onGrantGems={props.onGrantGems}
+            onUnlockAll={props.onUnlockAll}
+            onAdFree={props.onAdFree}
+            onClose={() => setParentsOpen(false)}
+          />
+        )}
+      </ImageBackground>
+    );
+  }
 
   return (
     <LinearGradient colors={[...SLEEK_BG]} style={styles.bg}>
@@ -191,77 +433,6 @@ export function HomeScreen(props: Props) {
         <ScrollView style={styles.right} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
           {shopMsg ? <Text style={styles.shopMsg}>{shopMsg}</Text> : null}
 
-          {panel === 'tracks' ? (
-            <>
-              <Text style={styles.section}>🐶 Who's driving?</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
-                {DRIVERS.map((d) => {
-                  const owned = profile.ownedDrivers.includes(d.id);
-                  const isSelected = profile.selectedDriver === d.id;
-                  return (
-                    <TouchableOpacity
-                      key={d.id}
-                      style={[styles.gameCard, isSelected && styles.selected, !owned && styles.locked]}
-                      onPress={() => {
-                        if (owned) { props.onSelectDriver(d.id); setShopMsg(`${d.name} jumps in! ${d.tagline}`); }
-                        else if (profile.points >= d.price) { props.onBuyDriver(d.id); setShopMsg(`${d.name} joined your team! 🎉`); }
-                        else { setShopTab('drivers'); setPanel('garage'); setShopMsg(`Get ${d.name} in the Garage! Need ${d.price - profile.points} more coins.`); }
-                      }}
-                    >
-                      <DriverFace driver={d} mode={viewMode} size={40} />
-                      <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
-                      <Text style={styles.abilityLine}>{d.abilityIcon} {d.abilityName}</Text>
-                      <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to drive' : `🪙 ${d.price} — tap to buy`}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              <Text style={styles.section}>🗺️ Which track?</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
-                {LEVELS.map((lv) => {
-                  const locked = !isLevelUnlocked(lv.id, profile.unlockedLevel, profile.purchasedLevels, profile.unlockAll);
-                  const selected = lv.id === levelId;
-                  return (
-                    <TouchableOpacity
-                      key={lv.id}
-                      onPress={() => {
-                        if (!locked) { setLevelId(lv.id); setShopMsg(lv.tagline); }
-                        else { setShopTab('maps'); setPanel('garage'); setShopMsg(`${lv.name} is locked. Win the track before it, or unlock it here.`); }
-                      }}
-                      style={[styles.gameCard, styles.levelCard, selected && styles.selected, locked && styles.locked]}
-                    >
-                      <Text style={styles.levelIcon}>{locked ? '🔒' : lv.icon}</Text>
-                      <Text style={styles.cardName}>{lv.name}</Text>
-                      <Text style={styles.cardSub}>{locked ? 'Locked' : `⭐ ${lv.starGoal}`}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              <Text style={styles.section}>💨 How fast?</Text>
-              <View style={styles.hRow}>
-                {DIFFICULTY_ORDER.map((id) => {
-                  const d = DIFFICULTIES[id];
-                  const kid = DIFF_KID[id];
-                  return (
-                    <TouchableOpacity
-                      key={id}
-                      onPress={() => setDifficulty(id)}
-                      style={[styles.diffBtn, difficulty === id && styles.selected]}
-                    >
-                      <Text style={styles.diffLabel}>{kid.face} {kid.label}</Text>
-                      <Text style={styles.cardSub}>❤️ {d.hearts}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                <TouchableOpacity style={styles.garageLaunch} onPress={() => { setShopTab('cars'); setPanel('garage'); }}>
-                  <Text style={styles.garageLaunchText}>🛠️ Garage</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            <>
               <View style={styles.garageBar}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => setPanel('tracks')}>
                   <Text style={styles.backBtnText}>◀ TRACKS</Text>
@@ -306,95 +477,141 @@ export function HomeScreen(props: Props) {
           </View>
 
           {shopTab === 'cars' && (
-            <View style={styles.garageRow}>
-              <View style={styles.garageGrid}>
-                {VEHICLES.map((v) => {
-                  const owned = profile.ownedVehicles.includes(v.id);
-                  const isEquipped = raceVehicle.id === v.id;
-                  const isPicked = pickedVehicle === v.id;
-                  return (
-                    <TouchableOpacity
-                      key={v.id}
-                      style={[styles.garageCard, isPicked && styles.selected, isEquipped && styles.equippedCard]}
-                      onPress={() => setPickedVehicle(v.id)}
-                    >
-                      <CarView color={v.carColor} accent={v.carAccent} emoji={v.emoji} width={44} mode={viewMode} angle="top" stripe="#FFFFFF" vehicleId={v.id} />
-                      <Text style={styles.cardName}>{v.name}</Text>
-                      <Text style={styles.cardSub}>{isEquipped ? '✅ Equipped' : owned ? 'Owned' : v.price === 0 ? `With ${DRIVERS.find((d) => d.vehicleId === v.id)?.name ?? 'driver'}` : `🪙 ${v.price}`}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <View style={styles.detailPanel}>
-                {(() => {
-                  const v = vehicleById(pickedVehicle);
-                  const owned = profile.ownedVehicles.includes(v.id);
-                  const isEquipped = raceVehicle.id === v.id;
-                  return (
-                    <>
-                      <CarView color={v.carColor} accent={v.carAccent} emoji={v.emoji} width={64} mode={viewMode} angle="top" stripe={skin.stripe} vehicleId={v.id} />
-                      <Text style={styles.detailName}>{v.emoji} {v.name}</Text>
-                      <StatBar label="Speed" value={v.speed} />
-                      <StatBar label="Handling" value={v.handling} />
-                      <Text style={styles.cardSub}>Handling = how fast the car slides between lanes.</Text>
-                      <Text style={styles.detailPrice}>{v.price === 0 ? 'FREE' : `🪙 ${v.price} coins${v.gemPrice ? ` or 💎 ${v.gemPrice}` : ''}`}</Text>
-                      <TouchableOpacity
-                        style={[styles.detailBtn, isEquipped && styles.detailBtnDone]}
-                        onPress={() => {
-                          const driverForCar = DRIVERS.find((d) => d.vehicleId === v.id);
-                          if (isEquipped) setShopMsg(v.name + ' is already equipped!');
-                          else if (owned) { props.onEquipVehicle(v.id); setShopMsg(v.name + ' equipped!'); }
-                          else if (v.price === 0 && driverForCar) { props.onSelectDriver(driverForCar.id); setShopMsg(`${driverForCar.name} is racing in the ${v.name}! ${driverForCar.tagline}`); }
-                          else if (profile.points >= v.price) { props.onBuyVehicle(v.id, 'coins'); setShopMsg(v.name + ' bought! 🎉'); }
-                          else setShopMsg(`${NOT_ENOUGH} Need ${v.price - profile.points} more coins for ${v.name}.`);
-                        }}
-                      >
-                        <Text style={styles.detailBtnText}>{isEquipped ? '✅ Equipped' : owned ? 'EQUIP CAR' : v.price === 0 ? `PICK ${DRIVERS.find((d) => d.vehicleId === v.id)?.name.toUpperCase() ?? 'DRIVER'}` : 'BUY CAR'}</Text>
+            <View>
+              {(() => {
+                const v = vehicleById(pickedVehicle);
+                const owned = profile.ownedVehicles.includes(v.id);
+                const isEquipped = raceVehicle.id === v.id;
+                // Paint preview: a tapped swatch repaints the showroom
+                // hero (photo by colour family, else the drawn car in
+                // that paint). '' = the vehicle's own colour.
+                const previewPaint = pickedPaint ? paintById(pickedPaint) : null;
+                const previewColor = previewPaint ? previewPaint.color : v.carColor;
+                const previewAccent = previewPaint ? previewPaint.accent : v.carAccent;
+                const photo = previewPaint
+                  ? photoForColor(previewPaint.color)
+                  : v.id === 'race' || v.id === 'car'
+                    ? GARAGE_RED
+                    : null;
+                const glow = photo === GARAGE_MIDNIGHT ? '#2FD8FF' : photo ? '#FF7A1A' : previewColor;
+                const vIdx = VEHICLES.findIndex((x) => x.id === v.id);
+                const prevCar = () => setPickedVehicle(VEHICLES[(vIdx - 1 + VEHICLES.length) % VEHICLES.length].id);
+                const nextCar = () => setPickedVehicle(VEHICLES[(vIdx + 1) % VEHICLES.length].id);
+                return (
+                  <>
+                    <View style={styles.showroom}>
+                      <TouchableOpacity style={styles.showArrow} onPress={prevCar}>
+                        <Text style={styles.showArrowText}>◀</Text>
                       </TouchableOpacity>
-                      {!owned && v.gemPrice ? (
+                      <View style={styles.showHero}>
+                        {photo ? (
+                          <Image source={photo} style={styles.showHeroImg} resizeMode="cover" />
+                        ) : (
+                          <View style={styles.showDrawn}>
+                            <CarView color={previewColor} accent={previewAccent} emoji={v.emoji} width={200} mode={viewMode} angle="front" stripe={skin.stripe} vehicleId={v.id} />
+                          </View>
+                        )}
+                        <View style={[styles.showGlow, { backgroundColor: glow, shadowColor: glow }]} />
+                      </View>
+                      <View style={styles.showInfo}>
+                        <Text style={styles.showClass}>{VEHICLE_CLASS[v.id] ?? 'RACE SERIES'} • {vehicleRarity(v)}</Text>
+                        <Text style={styles.showName}>{v.emoji} {v.name}</Text>
+                        <StatBar label="Speed" value={v.speed} />
+                        <StatBar label="Acceleration" value={skin.acceleration} />
+                        <StatBar label="Handling" value={v.handling} />
+                        <Text style={styles.cardSub}>Handling = how fast the car slides between lanes.</Text>
+                        <Text style={styles.detailPrice}>{v.price === 0 ? 'FREE' : `🪙 ${v.price} coins${v.gemPrice ? ` or 💎 ${v.gemPrice}` : ''}`}</Text>
+                        <View style={styles.swatchRow}>
+                          {PAINTS.map((p) => (
+                            <TouchableOpacity
+                              key={p.id}
+                              style={[styles.swatch, { backgroundColor: p.color }, pickedPaint === p.id && styles.swatchSelected]}
+                              onPress={() => {
+                                setPickedPaint(p.id);
+                                if (profile.ownedPaints.includes(p.id)) { props.onEquipPaint(p.id); setShopMsg(`${p.name} painted on the ${v.name}!`); }
+                                else setShopMsg(`${p.name} preview — buy it in the Paint tab for 🪙 ${p.price}.`);
+                              }}
+                            />
+                          ))}
+                        </View>
                         <TouchableOpacity
-                          style={[styles.detailBtn, styles.gemBtn]}
+                          style={[styles.detailBtn, isEquipped && styles.detailBtnDone]}
                           onPress={() => {
-                            const gemPrice = v.gemPrice ?? 0;
-                            if (profile.gems >= gemPrice) { props.onBuyVehicle(v.id, 'gems'); setShopMsg(v.name + ' bought with gems! 💎🎉'); }
-                            else setShopMsg(`Need ${gemPrice - profile.gems} more gems for ${v.name}.`);
+                            const driverForCar = DRIVERS.find((d) => d.vehicleId === v.id);
+                            if (isEquipped) setShopMsg(v.name + ' is already equipped!');
+                            else if (owned) { props.onEquipVehicle(v.id); setShopMsg(v.name + ' equipped!'); }
+                            else if (v.price === 0 && driverForCar) { props.onSelectDriver(driverForCar.id); setShopMsg(`${driverForCar.name} is racing in the ${v.name}! ${driverForCar.tagline}`); }
+                            else if (profile.points >= v.price) { props.onBuyVehicle(v.id, 'coins'); setShopMsg(v.name + ' bought! 🎉'); }
+                            else setShopMsg(`${NOT_ENOUGH} Need ${v.price - profile.points} more coins for ${v.name}.`);
                           }}
                         >
-                          <Text style={styles.detailBtnText}>💎 {v.gemPrice} — BUY WITH GEMS</Text>
+                          <Text style={styles.detailBtnText}>{isEquipped ? '✅ Equipped' : owned ? 'EQUIP CAR' : v.price === 0 ? `PICK ${DRIVERS.find((d) => d.vehicleId === v.id)?.name.toUpperCase() ?? 'DRIVER'}` : 'BUY CAR'}</Text>
                         </TouchableOpacity>
-                      ) : null}
-                      {!owned && v.price > 0 ? (
-                        <>
+                        {!owned && v.gemPrice ? (
                           <TouchableOpacity
-                            style={[styles.detailBtn, styles.tryBtn]}
-                            onPress={async () => {
-                              if (profile.gems < 5) { setShopMsg('Need 5 gems to try this car for one race.'); return; }
-                              const r = await props.onTrialVehicle(v.id, 'gems');
-                              if (r === 'earned') { setPanel('tracks'); setShopMsg(v.name + ' is ready! Tap RACE for one try.'); }
-                              else setShopMsg('Could not start the try. Your gems are safe.');
+                            style={[styles.detailBtn, styles.gemBtn]}
+                            onPress={() => {
+                              const gemPrice = v.gemPrice ?? 0;
+                              if (profile.gems >= gemPrice) { props.onBuyVehicle(v.id, 'gems'); setShopMsg(v.name + ' bought with gems! 💎🎉'); }
+                              else setShopMsg(`Need ${gemPrice - profile.gems} more gems for ${v.name}.`);
                             }}
                           >
-                            <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 💎 5</Text>
+                            <Text style={styles.detailBtnText}>💎 {v.gemPrice} — BUY WITH GEMS</Text>
                           </TouchableOpacity>
-                          {isAdsConfigured && !profile.adFree && profile.trophies > 0 ? (
+                        ) : null}
+                        {!owned && v.price > 0 ? (
+                          <>
                             <TouchableOpacity
-                              style={[styles.detailBtn, styles.gemBtn]}
+                              style={[styles.detailBtn, styles.tryBtn]}
                               onPress={async () => {
-                                const r = await props.onTrialVehicle(v.id, 'ad');
+                                if (profile.gems < 5) { setShopMsg('Need 5 gems to try this car for one race.'); return; }
+                                const r = await props.onTrialVehicle(v.id, 'gems');
                                 if (r === 'earned') { setPanel('tracks'); setShopMsg(v.name + ' is ready! Tap RACE for one try.'); }
-                                else if (r === 'cancelled') setShopMsg('Ad closed early — no try this time.');
-                                else setShopMsg('The ad could not load — no try this time.');
+                                else setShopMsg('Could not start the try. Your gems are safe.');
                               }}
                             >
-                              <Text style={styles.detailBtnText}>📺 TRY — watch an ad</Text>
+                              <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 💎 5</Text>
                             </TouchableOpacity>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </>
-                  );
-                })()}
-              </View>
+                            {isAdsConfigured && !profile.adFree && profile.trophies > 0 ? (
+                              <TouchableOpacity
+                                style={[styles.detailBtn, styles.gemBtn]}
+                                onPress={async () => {
+                                  const r = await props.onTrialVehicle(v.id, 'ad');
+                                  if (r === 'earned') { setPanel('tracks'); setShopMsg(v.name + ' is ready! Tap RACE for one try.'); }
+                                  else if (r === 'cancelled') setShopMsg('Ad closed early — no try this time.');
+                                  else setShopMsg('The ad could not load — no try this time.');
+                                }}
+                              >
+                                <Text style={styles.detailBtnText}>📺 TRY — watch an ad</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </View>
+                      <TouchableOpacity style={styles.showArrow} onPress={nextCar}>
+                        <Text style={styles.showArrowText}>▶</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {/* Compact thumbnail strip — every car stays one tap away */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbRow}>
+                      {VEHICLES.map((vv) => {
+                        const isPicked = pickedVehicle === vv.id;
+                        const isEq = raceVehicle.id === vv.id;
+                        return (
+                          <TouchableOpacity
+                            key={vv.id}
+                            style={[styles.thumb, isPicked && styles.selected, isEq && styles.equippedCard]}
+                            onPress={() => setPickedVehicle(vv.id)}
+                          >
+                            <CarView color={vv.carColor} accent={vv.carAccent} emoji={vv.emoji} width={30} mode={viewMode} angle="top" stripe="#FFFFFF" vehicleId={vv.id} />
+                            <Text style={styles.thumbName}>{vv.name}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                );
+              })()}
             </View>
           )}
 
@@ -425,7 +642,21 @@ export function HomeScreen(props: Props) {
                   const isEquipped = profile.equippedPaint === p.id;
                   return (
                     <>
-                      <CarView color={p.color} accent={p.accent} emoji={raceVehicle.emoji} width={84} mode={viewMode} angle="top" stripe={p.stripe} vehicleId={raceVehicle.id} />
+                      {(() => {
+                        // The showroom hero reacts to the picked paint:
+                        // red/orange paints get the red flame photo, blue
+                        // paints the midnight photo, anything else the
+                        // drawn car in that paint colour.
+                        const photo = photoForColor(p.color);
+                        return photo ? (
+                          <View style={styles.paintHero}>
+                            <Image source={photo} style={styles.paintHeroImg} resizeMode="cover" />
+                            <View style={[styles.showGlow, { backgroundColor: photo === GARAGE_MIDNIGHT ? '#2FD8FF' : '#FF7A1A', shadowColor: photo === GARAGE_MIDNIGHT ? '#2FD8FF' : '#FF7A1A' }]} />
+                          </View>
+                        ) : (
+                          <CarView color={p.color} accent={p.accent} emoji={raceVehicle.emoji} width={84} mode={viewMode} angle="top" stripe={p.stripe} vehicleId={raceVehicle.id} />
+                        );
+                      })()}
                       <Text style={styles.detailName}>{p.emoji} {p.name}</Text>
                       <Text style={styles.cardSub}>Repaints any car you own! Start a race to see it on the road.</Text>
                       <Text style={styles.detailPrice}>{p.price === 0 ? 'FREE' : `🪙 ${p.price} coins${p.gemPrice ? ` or 💎 ${p.gemPrice}` : ''}`}</Text>
@@ -637,8 +868,6 @@ export function HomeScreen(props: Props) {
               })}
             </View>
           )}
-            </>
-          )}
         </ScrollView>
       </View>
 
@@ -684,8 +913,6 @@ const styles = StyleSheet.create({
   heroSlot: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 72 },
   hero: { alignItems: 'center' },
   trialChip: { textAlign: 'center', fontWeight: '900', color: '#FFE9A8', backgroundColor: 'rgba(255,197,49,0.16)', borderRadius: 999, overflow: 'hidden', paddingVertical: 4, paddingHorizontal: 10, fontSize: 12, borderWidth: 1, borderColor: 'rgba(255,197,49,0.4)' },
-  garageLaunch: { flex: 1.1, backgroundColor: '#FF6A00', borderRadius: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 4, borderBottomColor: '#8F3200', elevation: 4 },
-  garageLaunchText: { color: '#fff', fontSize: 16, fontWeight: '900', fontStyle: 'italic' },
   garageBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   backBtn: { backgroundColor: '#37D67A', borderRadius: 14, paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 3, borderBottomColor: '#0E7A45' },
   backBtnText: { color: '#06281A', fontWeight: '900', fontSize: 14 },
@@ -706,15 +933,12 @@ const styles = StyleSheet.create({
   unlockAllBadge: { textAlign: 'center', fontWeight: '900', color: '#FFC531', fontSize: 13 },
   right: { flex: 1 },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  section: { fontSize: 15, fontWeight: '900', fontStyle: 'italic', color: '#F2F4F8', marginTop: 2, marginBottom: 2, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 10, alignSelf: 'flex-start', elevation: 2 },
   viewToggle: { flexDirection: 'row', backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 12, padding: 3, gap: 3 },
   viewBtn: { borderRadius: 9, paddingVertical: 5, paddingHorizontal: 12 },
   viewBtnSelected: { backgroundColor: '#FFC531' },
   viewBtnText: { fontWeight: '900', color: '#9AA3B5', fontSize: 14 },
   viewBtnTextSelected: { color: '#0B0D13' },
-  hRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
   gameCard: { width: 108, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16, paddingVertical: 3, paddingHorizontal: 6, borderWidth: 3, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', elevation: 3 },
-  levelCard: { width: 100 },
   selected: { borderColor: '#FFC531', backgroundColor: 'rgba(255,197,49,0.14)' },
   locked: { opacity: 0.55 },
   levelIcon: { fontSize: 26 },
@@ -756,4 +980,43 @@ const styles = StyleSheet.create({
   earnGemsText: { color: '#fff', fontWeight: '900', fontSize: 14 },
   gemBtn: { backgroundColor: '#7C3AED', borderBottomColor: '#5B21B6' },
   tryBtn: { backgroundColor: '#F59E0B', borderBottomColor: '#B45309' },
+  // --- Mockup-gap fixes: hero home + photo showroom ---
+  heroRoot: { flex: 1 },
+  heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  heroTopRight: { alignItems: 'flex-end', gap: 6 },
+  chipRow: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' },
+  nameInputCompact: { width: 118, borderWidth: 2, borderColor: 'rgba(255,255,255,0.22)', borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12, fontSize: 14, fontWeight: '800', color: '#F2F4F8', backgroundColor: 'rgba(10,12,20,0.62)', textAlign: 'center' },
+  pickChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 999, paddingVertical: 4, paddingLeft: 6, paddingRight: 12 },
+  pickChipOpen: { borderColor: '#FFC531', backgroundColor: 'rgba(255,197,49,0.14)' },
+  pickChipText: { fontWeight: '900', color: '#FFFFFF', fontSize: 14 },
+  pickChipSub: { fontWeight: '800', color: '#2FD8FF', fontSize: 12 },
+  pickChipIcon: { fontSize: 20 },
+  pickerPanel: { flexDirection: 'row', gap: 8, backgroundColor: 'rgba(10,12,20,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 18, padding: 8, marginTop: 8, alignSelf: 'flex-start', maxWidth: '100%' },
+  pickerCard: { width: 96, paddingVertical: 4 },
+  pickerDiffBtn: { flex: 0, minWidth: 110 },
+  levelIconCompact: { fontSize: 22 },
+  dock: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginTop: 8 },
+  dockLeft: { flexDirection: 'row', gap: 8 },
+  dockBtn: { backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 },
+  dockBtnText: { color: '#fff', fontSize: 15, fontWeight: '900', fontStyle: 'italic' },
+  playBtnHero: { backgroundColor: '#FF6A00', borderRadius: 18, paddingVertical: 14, paddingHorizontal: 44, borderBottomWidth: 6, borderBottomColor: '#8F3200', elevation: 8, shadowColor: '#FF6A00', shadowOpacity: 0.5, shadowRadius: 12, minWidth: 240 },
+  // Showroom (Garage Cars tab): photo hero + info + thumbnail strip.
+  showroom: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  showArrow: { width: 40, alignSelf: 'center', backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)', borderRadius: 999, paddingVertical: 14, alignItems: 'center' },
+  showArrowText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+  showHero: { flex: 1.35, height: 208, borderRadius: 18, overflow: 'hidden', backgroundColor: '#0B0D13', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', position: 'relative' },
+  showHeroImg: { width: '100%', height: '100%' },
+  showDrawn: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B0D13' },
+  showGlow: { position: 'absolute', bottom: 10, left: '15%', right: '15%', height: 6, borderRadius: 999, opacity: 0.85, shadowOpacity: 0.9, shadowRadius: 12, elevation: 4 },
+  showInfo: { flex: 1, backgroundColor: '#161B28', borderRadius: 18, padding: 12, borderWidth: 3, borderColor: '#FFC531', elevation: 3, shadowColor: '#FFC531', shadowOpacity: 0.25, shadowRadius: 10 },
+  showClass: { fontWeight: '900', color: '#2FD8FF', fontSize: 12, letterSpacing: 1 },
+  showName: { fontWeight: '900', fontStyle: 'italic', color: '#F2F4F8', fontSize: 22, marginTop: 2 },
+  swatchRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  swatch: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)' },
+  swatchSelected: { borderColor: '#FFC531', borderWidth: 3 },
+  thumbRow: { flexDirection: 'row', gap: 6, paddingTop: 8, paddingRight: 4 },
+  thumb: { width: 74, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, paddingVertical: 4, paddingHorizontal: 4, borderWidth: 3, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center' },
+  thumbName: { fontWeight: '800', textAlign: 'center', color: '#C7CEDE', fontSize: 10, marginTop: 1 },
+  paintHero: { width: '100%', height: 108, borderRadius: 14, overflow: 'hidden', backgroundColor: '#0B0D13', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', position: 'relative', marginBottom: 4 },
+  paintHeroImg: { width: '100%', height: '100%' },
 });

@@ -30,6 +30,9 @@ export interface Level {
   gemPrice?: number;
   /** True for night maps: draw a moon + stars, never a sun. */
   night?: boolean;
+  /** True for the sunset map (Sunny Park): photographic sunset sky
+      photo + palm/lamp roadside scenery, dusk ground and road. */
+  sunset?: boolean;
   /** Kerb-block colour (per map, so it stays visible on pale maps). */
   kerb: string;
   /** Road-edge line colour (per map, so it stays visible on pale maps). */
@@ -45,10 +48,10 @@ export interface Level {
 export const LEVELS: Level[] = [
   {
     id: 1, name: 'Sunny Park', starGoal: 20, baseSpeed: 300, trafficFactor: 1.0,
-    sky: ['#7DD3FC', '#FEF9C3'], grass: '#4ADE80', road: '#475569',
-    scenery: ['🌳', '🌼', '🌳', '🦋', '🌼'], icon: '🌞', tagline: 'Easy and sunny!', price: 0,
-    kerb: '#EF4444', edge: '#F8FAFC', trafficColors: ['#F97316', '#8B5CF6', '#14B8A6', '#F43F5E', '#0EA5E9'],
-    obstacleEmoji: '🚧', puddleEmoji: '💧',
+    sky: ['#FF9E4A', '#5B2A4A'], grass: '#2E2426', road: '#33313A',
+    scenery: ['🌴', '💡', '🌴', '🌴', '💡'], icon: '🌞', tagline: 'Sunset race!', price: 0,
+    kerb: '#F97316', edge: '#FDE68A', trafficColors: ['#3B82F6', '#FACC15', '#F97316', '#8B5CF6', '#14B8A6'],
+    obstacleEmoji: '🚧', puddleEmoji: '💧', sunset: true,
   },
   {
     id: 2, name: 'Beach Road', starGoal: 25, baseSpeed: 330, trafficFactor: 0.92,
