@@ -180,6 +180,11 @@ export default function App() {
     // Bella ability: +1 Heart — her races start with an extra heart.
     const bellaHearts = profile.selectedDriver === 'bella' ? 1 : 0;
     music.start();
+    // Hide the system bars NOW, at the tap — before the race screen
+    // paints. The effects in App/RaceScreen only run after first
+    // paint, so without this the status + nav bars flash visible
+    // at race start (seen on Dhruv's phone, 2026-11-06).
+    void setImmersiveMode(true);
     setScreen({ kind: 'race', levelId, difficulty, vehicleId: useVehicle, driverId: profile.selectedDriver, viewMode: profile.viewMode, extraHearts: extraHearts + bellaHearts });
   };
 

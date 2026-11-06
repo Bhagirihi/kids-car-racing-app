@@ -43,10 +43,16 @@
 //   lanes. Car, buttons and hit box all scale with screen width.
 // - 2D/3D actually changes the race look: 3D is glossy (shine,
 //   shadows, glowing sun/moon); 2D is flat (no gloss/shadows).
+// - Road fix (2026-11-06, from Dhruv's phone photo): horizon 0.44H,
+//   bottom width full screen, solid edge lines + long kerb blocks,
+//   white lane dashes, passed cars culled at the player so nothing
+//   piles at the bottom edge; player car 26% so it no longer
+//   overlaps next-lane traffic. Immersive: bars hidden at the RACE!
+//   tap + re-hidden every 700 ms while racing (see immersive.ts).
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Image, PanResponder, StyleSheet, Text, TouchableOpacity, View,
+  AppState, Image, PanResponder, StyleSheet, Text, TouchableOpacity, View,
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -95,6 +101,16 @@ function heartLine(n: number): string {
  *  The slice borders are the ONE kerb pattern: per-map kerb/edge
  *  colours, alternating in 15px blocks that scroll with `offset`
  *  (the road scroll), and shrinking toward the horizon. */
+// Darken a #rrggbb colour by factor f (0..1) — asphalt depth
+// shading: the far road is a little darker than the near road.
+const shadeHex = (hex: string, f: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 255) * f);
+  const g = Math.round(((n >> 8) & 255) * f);
+  const b = Math.round((n & 255) * f);
+  return `rgb(${r},${g},${b})`;
+};
+
 const RoadSurface = React.memo(function RoadSurface(props: {
   width: number;
   height: number;
@@ -113,15 +129,25 @@ const RoadSurface = React.memo(function RoadSurface(props: {
     const t = Math.max(0, Math.min(1, (y - props.horizon) / roadH));
     return props.topW / 2 + t * ((props.botW - props.topW) / 2);
   };
+  // Solid edge lines: one continuous line per road edge, so the
+  // edge reads as a line, not dotted pixels. A thin rotated strip
+  // from horizon to bottom, inset 16px inside the kerb band.
+  const edgeLen = Math.hypot(roadH, (props.botW - props.topW) / 2);
+  const edgeDeg = (Math.atan2((props.botW - props.topW) / 2, roadH) * 180) / Math.PI;
+  const edgeMidY = props.horizon + roadH / 2;
+  const edgeMidHalf = (props.topW + props.botW) / 4; // half-width at mid-height
   const strips = [];
   for (let i = 0; i < count; i++) {
     const y = props.horizon + i * stripH;
     const half = halfAt(y + stripH);
     const t = Math.max(0, Math.min(1, (y - props.horizon) / roadH));
-    const edge = Math.max(2, Math.round(t * 8));
-    // 15px blocks: 90px of road scroll is an exact multiple, so the
-    // pattern never jumps when the scroll offset wraps.
-    const kerbBlock = Math.floor((y + props.offset) / 15) % 2 === 0;
+    // Kerb band: wide, LONG blocks (45px) alternating kerb colour /
+    // white on BOTH sides — reads as kerbs, not dotted pixels. The
+    // 45px block divides the 90px scroll wrap, so the pattern never
+    // jumps when the offset wraps.
+    const kerbW = Math.max(4, Math.round(t * 14));
+    const kerbBlock = Math.floor((y + props.offset) / 45) % 2 === 0;
+    const kerbColor = kerbBlock ? props.kerb : '#FFFFFF';
     strips.push(
       <View
         key={i}
@@ -131,16 +157,37 @@ const RoadSurface = React.memo(function RoadSurface(props: {
           left: props.width / 2 - half,
           width: half * 2,
           height: stripH + 1,
-          backgroundColor: props.color,
-          borderLeftWidth: edge,
-          borderRightWidth: edge,
-          borderLeftColor: t > 0.55 && kerbBlock ? props.kerb : props.edge,
-          borderRightColor: t > 0.55 && kerbBlock ? props.edge : props.kerb,
+          backgroundColor: shadeHex(props.color, 0.78 + 0.22 * t),
+          borderLeftWidth: kerbW,
+          borderRightWidth: kerbW,
+          borderLeftColor: kerbColor,
+          borderRightColor: kerbColor,
         }}
       />,
     );
   }
-  return <>{strips}</>;
+  return (
+    <>
+      {strips}
+      {[-1, 1].map((side) => (
+        <View
+          key={'edge' + side}
+          style={{
+            position: 'absolute',
+            left: props.width / 2 + side * edgeMidHalf - side * 16 - 2.5,
+            top: edgeMidY - edgeLen / 2,
+            width: 5,
+            height: edgeLen,
+            backgroundColor: props.edge,
+            borderRadius: 3,
+            // Left edge leans top-right / bottom-left (clockwise,
+            // +deg); right edge is the mirror. -side, not side.
+            transform: [{ rotate: `${-side * edgeDeg}deg` }],
+          }}
+        />
+      ))}
+    </>
+  );
 });
 
 interface Props {
@@ -173,11 +220,12 @@ export function RaceScreen(props: Props) {
   const is3d = props.viewMode === '3d';
 
   // Perspective geometry (live window size, landscape).
-  // Narrow at the horizon, almost full width under the car — a road,
-  // not a spike in the middle of the grass.
-  const HORIZON = H * 0.36;
-  const ROAD_TOP_W = Math.max(48, W * 0.1);
-  const ROAD_BOT_W = W * 0.92;
+  // Wide at the bottom, FULL width under the car, horizon low so
+  // the sky is ~44% of the frame like the mockup — a long wide
+  // road, not a narrow spike in the middle of the ground.
+  const HORIZON = H * 0.44;
+  const ROAD_TOP_W = Math.max(56, W * 0.2);
+  const ROAD_BOT_W = W * 1.0;
   const ROAD_H = H - HORIZON;
   const KERB = Math.max(5, W * 0.008); // kerb inset: lanes sit inside the painted asphalt
   const roadHalfOuterAt = (y: number) => {
@@ -188,10 +236,13 @@ export function RaceScreen(props: Props) {
   const laneX = (lane: number, y: number) => W / 2 + (lane - 1) * (roadHalfAt(y) * 2 / 3);
   const depthScale = (y: number) => 0.35 + 0.65 * Math.max(0, Math.min(1, (y - HORIZON) / ROAD_H));
   // Car / buttons / hit box scale with screen width (no fixed 150px car).
-  // Big player car, like the mockup: the red flame car fills ~30% of
-  // the screen width. The hit box is derived from CAR_W, so it scales
-  // with the picture (no invisible hits).
-  const CAR_W = Math.round(Math.max(180, Math.min(360, W * 0.3)));
+  // Big player car, like the mockup: the red flame car fills ~26% of
+  // the screen width — big, but with room for adjacent-lane traffic
+  // beside it instead of overlapping it. The hit box is derived from
+  // CAR_W, so it scales with the picture (no invisible hits).
+  // (Was 30% / max 360: the car was so wide it overlapped traffic
+  // in the next lane at the player's row — see the phone photo.)
+  const CAR_W = Math.round(Math.max(160, Math.min(320, W * 0.26)));
   const CAR_H = Math.round(CAR_W * 0.78);
   const PLAYER_Y = Math.round(H - CAR_H - insets.bottom - 10);
   const BTN = Math.round(Math.max(56, Math.min(84, W * 0.085)));
@@ -292,6 +343,29 @@ export function RaceScreen(props: Props) {
     void setImmersiveMode(!paused);
     return () => { void setImmersiveMode(false); };
   }, [paused]);
+
+  // Re-hide the system bars while racing: with transient-by-swipe
+  // behaviour an edge swipe (or Expo Go / an activity change) can
+  // bring the bars back mid-race — re-apply every 700 ms until
+  // paused or unmounted. Runs from mount (countdown included),
+  // not just once. On pause the interval stops and the effect
+  // above shows the bars again; on resume both re-hide them.
+  useEffect(() => {
+    if (paused) return;
+    const iv = setInterval(() => { void setImmersiveMode(true); }, 700);
+    return () => clearInterval(iv);
+  }, [paused]);
+
+  // If the app goes to the background and comes back while racing,
+  // Android may re-show the bars — hide them again on foreground.
+  const pausedRef = useRef(false);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active' && !pausedRef.current) void setImmersiveMode(true);
+    });
+    return () => sub.remove();
+  }, []);
 
   // Keep the visual x centred when the window size changes.
   useEffect(() => { visualXRef.current = laneX(laneRef.current, PLAYER_Y); setVisualX(visualXRef.current); }, [W, H]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -562,6 +636,14 @@ export function RaceScreen(props: Props) {
           xShift += step;
           y += dy * 0.25 * upgrades.magnet;
         }
+        // Anything that has fully passed the player (its top is
+        // below the player car) can no longer be hit or collected —
+        // drop it HERE instead of letting it pile up at the bottom
+        // edge overlapping the player car (the bus + cars piled at
+        // the bottom of Dhruv's phone photo). Lap/finish lines sweep
+        // the full road, so they keep the old cull; rivals are
+        // counted as passed in their block below, then dropped there.
+        if (e.kind !== 'rival' && e.kind !== 'lapline' && e.kind !== 'finishline' && y > PLAYER_Y + CAR_H) continue;
         if (y > H + 100) continue;
         const s = depthScale(y);
         const entityX = laneX(e.lane, y) + xShift;
@@ -583,6 +665,8 @@ export function RaceScreen(props: Props) {
             setTimeout(() => setToast(''), 1400);
             e.rivalPlace = undefined;
           }
+          // Counted as passed above — now gone, no bottom pile-up.
+          if (y > PLAYER_Y + CAR_H) continue;
           kept.push({ ...e, y, xShift });
           continue;
         }
@@ -707,8 +791,10 @@ export function RaceScreen(props: Props) {
     }
   };
 
-  // Converging lane dashes: 6 dashes scrolling down, leaning with the lanes.
-  const dashes = Array.from({ length: 6 }, (_, i) => HORIZON + (((roadOffset + i * 90) % 540) / 540) * ROAD_H);
+  // Converging lane dashes: 8 long, bright dashes scrolling down,
+  // leaning with the lanes. 90px spacing divides the 720px cycle
+  // AND the 90px scroll wrap, so the pattern never jumps.
+  const dashes = Array.from({ length: 8 }, (_, i) => HORIZON + (((roadOffset + i * 90) % 720) / 720) * ROAD_H);
   // Grass tufts rendered from state (they scroll with dy, like everything else).
   const shakeX = flash ? (Math.floor(Date.now() / 90) % 2 === 0 ? 7 : -7) : 0;
   const speedLines = boosting || mph > currentMph * 1.1;
@@ -792,8 +878,8 @@ export function RaceScreen(props: Props) {
             style={[styles.laneDash, {
               top: y,
               left: W / 2 + (side * roadHalfAt(y)) / 3 - 3,
-              width: 4 + depthScale(y) * 3,
-              height: 8 + depthScale(y) * 18,
+              width: 5 + depthScale(y) * 4,
+              height: 14 + depthScale(y) * 26,
               transform: [{ rotate: `${side * LEAN_DEG}deg` }],
             }]}
           />
@@ -1007,7 +1093,7 @@ const styles = StyleSheet.create({
   moon: { position: 'absolute', fontSize: 32, zIndex: 1 },
   nightStars: { position: 'absolute', fontSize: 16, color: '#FDE68A', zIndex: 1 },
   ground: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  laneDash: { position: 'absolute', backgroundColor: '#FDE68A', borderRadius: 3 },
+  laneDash: { position: 'absolute', backgroundColor: '#FFFFFF', borderRadius: 3 },
   speedLine: { position: 'absolute', width: 5, backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 3 },
   hudLeft: { position: 'absolute', zIndex: 5 },
   hudPill: { backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12 },
