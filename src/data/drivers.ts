@@ -33,6 +33,13 @@ export interface Driver {
   carAccent: string;
   /** Points to unlock; 0 = free from the start. */
   price: number;
+  /** Driver ability — one icon + one word, shown on the driver card
+      and wired into the race (see RaceScreen / App startRace):
+      Rocky = shield (first hit is free), Leo = fire boost (stronger
+      BOOST), Bella = +1 heart, Dash = faster top speed. */
+  abilityIcon: string;
+  abilityName: string;
+  abilityTag: string;
   /** Short fun line shown on the card. */
   tagline: string;
 }
@@ -58,6 +65,9 @@ export const DRIVERS: Driver[] = [
     carAccent: '#93C5FD',
     price: 0,
     tagline: 'Beep beep, let’s go!',
+    abilityIcon: '🛡️',
+    abilityName: 'Shield',
+    abilityTag: 'First hit is free!',
   },
   {
     id: 'leo',
@@ -80,6 +90,9 @@ export const DRIVERS: Driver[] = [
     carAccent: '#FCA5A5',
     price: 150,
     tagline: 'Woo-woo! Rescue time!',
+    abilityIcon: '🔥',
+    abilityName: 'Fire Boost',
+    abilityTag: 'Stronger BOOST!',
   },
   {
     id: 'bella',
@@ -101,6 +114,9 @@ export const DRIVERS: Driver[] = [
     carAccent: '#EF4444',
     price: 200,
     tagline: 'Hop to it — let’s help!',
+    abilityIcon: '❤️',
+    abilityName: '+1 Heart',
+    abilityTag: 'Starts with an extra heart!',
   },
   {
     id: 'dash',
@@ -122,6 +138,9 @@ export const DRIVERS: Driver[] = [
     carAccent: '#FDE68A',
     price: 300,
     tagline: 'Quack quack, zoom zoom!',
+    abilityIcon: '⚡',
+    abilityName: 'Top Speed',
+    abilityTag: 'Faster top speed!',
   },
 ];
 

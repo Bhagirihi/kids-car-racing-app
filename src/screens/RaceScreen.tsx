@@ -190,7 +190,7 @@ export function RaceScreen(props: Props) {
   // Engine +4% top speed/level, Turbo +6% BOOST power/level,
   // Extra Heart +1 starting heart/level, Star Magnet pulls stars.
   // Turbo upgrade and the skin's Acceleration stat both make BOOST stronger.
-  const boostMul = (1.3 + upgrades.turbo * 0.06) * (1 + (skin.acceleration - 3) * 0.04);
+  const boostMul = (1.3 + upgrades.turbo * 0.06) * (1 + (skin.acceleration - 3) * 0.04) * (props.driver.id === 'leo' ? 1.1 : 1); // Leo: Fire Boost
 
   const [goFlash, setGoFlash] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -235,6 +235,7 @@ export function RaceScreen(props: Props) {
   const finishingRef = useRef(false); // finish line is sweeping down
   const idRef = useRef(1);
   const invulnerableUntil = useRef(0);
+  const shieldUsedRef = useRef(false); // Rocky: Shield — first hit is free
   const elapsedRef = useRef(0);
   const topSpeedRef = useRef(0);
   const distanceRef = useRef(0);
@@ -252,7 +253,7 @@ export function RaceScreen(props: Props) {
   const sceneryTimer = useRef(0);
 
   const trafficInterval = diff.trafficIntervalMs * level.trafficFactor;
-  const scrollSpeed = level.baseSpeed * diff.speedMul * (0.96 + skin.speed * 0.015) * (1 + upgrades.engine * 0.04) * (1 + (vehicleSpeed - 3) * 0.02);
+  const scrollSpeed = level.baseSpeed * diff.speedMul * (0.96 + skin.speed * 0.015) * (1 + upgrades.engine * 0.04) * (1 + (vehicleSpeed - 3) * 0.02) * (props.driver.id === 'dash' ? 1.05 : 1); // Dash: Top Speed
   const currentMph = Math.round((90 + scrollSpeed * 0.28 + skin.speed * 4) * (1 + upgrades.engine * 0.04));
   // Total race distance for the progress bar: 3 laps, one lap per
   // third of the star goal. Progress = max(star progress, distance
@@ -295,7 +296,10 @@ export function RaceScreen(props: Props) {
         laneRef.current = Math.round(laneFloat);
         setLane(laneRef.current);
       },
-      onPanResponderRelease: () => { /* lane already set during the drag */ },
+      onPanResponderRelease: (_e, g) => {
+        // Tap (no real drag): left half = one lane left, right half = one lane right.
+        if (Math.abs(g.dx) < 12 && Math.abs(g.dy) < 12) moveLane(g.moveX < W / 2 ? -1 : 1);
+      },
     }),
   ).current;
 
@@ -397,6 +401,7 @@ export function RaceScreen(props: Props) {
   useEffect(() => {
     if (countdown <= 0) {
       setGoFlash(true);
+      pokeToast('👆 Tap left / right to steer!');
       music.start();
       spawnRivals();
       // Pre-spawned traffic starts at the horizon but ONLY in the side
@@ -528,7 +533,24 @@ export function RaceScreen(props: Props) {
           continue;
         }
         if (hit && now > invulnerableUntil.current) {
+          // Rocky: Shield eats the first hit — no heart lost.
+          if (props.driver.id === 'rocky' && !shieldUsedRef.current) {
+            shieldUsedRef.current = true;
+            invulnerableUntil.current = now + 1200;
+            flashUntilRef.current = now + 1200;
+            setFlash(true);
+            setTimeout(() => setFlash(false), 1200);
+            playSfx('bump');
+            pokeToast('🛡️ Shield saved you!');
+            continue;
+          }
           nextHearts -= 1;
+          // Low (Easy) cannot be lost: a 3-year-old always reaches the
+          // finish line — the last heart never drops.
+          if (props.difficulty === 'low' && nextHearts <= 0) {
+            nextHearts = 1;
+            pokeToast('Almost! Keep going! 💪');
+          }
           invulnerableUntil.current = now + 1200;
           flashUntilRef.current = now + 1200;
           setFlash(true);
@@ -860,23 +882,23 @@ const styles = StyleSheet.create({
   laneDash: { position: 'absolute', backgroundColor: '#FDE68A', borderRadius: 3 },
   speedLine: { position: 'absolute', width: 5, backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 3 },
   hudLeft: { position: 'absolute', zIndex: 5 },
-  hudPill: { backgroundColor: 'rgba(15,23,42,0.45)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12 },
-  positionText: { fontSize: 36, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  hudPill: { backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12 },
+  positionText: { fontSize: 36, fontWeight: '900', fontStyle: 'italic', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   hudSmall: { fontSize: 15, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   progressWrap: { position: 'absolute', left: '32%', right: '32%', alignItems: 'center', zIndex: 5 },
-  progressTrack: { width: '100%', height: 12, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 6, overflow: 'visible' },
-  progressFill: { height: '100%', backgroundColor: '#22C55E', borderRadius: 6 },
+  progressTrack: { width: '100%', height: 12, backgroundColor: 'rgba(8,10,16,0.66)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', borderRadius: 6, overflow: 'visible' },
+  progressFill: { height: '100%', backgroundColor: '#FF8A1A', borderRadius: 6, shadowColor: '#FFAA28', shadowOpacity: 0.8, shadowRadius: 6 },
   progressCar: { position: 'absolute', top: -14, fontSize: 18 },
   progressFlag: { position: 'absolute', top: -16, fontSize: 18 },
   progressLabel: { fontSize: 13, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4, marginTop: 4 },
   hudRight: { position: 'absolute', alignItems: 'flex-end', zIndex: 5 },
-  mphText: { fontSize: 42, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
-  mphBoost: { color: '#FDE047' },
+  mphText: { fontSize: 46, fontWeight: '900', fontStyle: 'italic', color: '#fff', textShadowColor: 'rgba(255,150,50,0.45)', textShadowRadius: 8 },
+  mphBoost: { color: '#FFC531' },
   mphUnit: { fontSize: 16 },
-  speedTrack: { width: 130, height: 10, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 5, overflow: 'hidden', marginTop: 2 },
-  speedFill: { height: '100%', backgroundColor: '#F59E0B' },
+  speedTrack: { width: 130, height: 10, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 5, overflow: 'hidden', marginTop: 2 },
+  speedFill: { height: '100%', backgroundColor: '#FFC531' },
   hudBtns: { flexDirection: 'row', gap: 6, marginTop: 6 },
-  roundBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' },
+  roundBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
   roundText: { fontSize: 17 },
   toast: { position: 'absolute', left: 0, right: 0, textAlign: 'center', fontWeight: '900', color: '#fff', fontSize: 18, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   flame: { position: 'absolute', bottom: -6, alignSelf: 'center', fontSize: 22 },
@@ -884,20 +906,21 @@ const styles = StyleSheet.create({
   countdownText: { fontSize: 90, fontWeight: '900', color: '#fff', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 8 },
   countdownSub: { fontSize: 20, fontWeight: '800', color: '#fff' },
   joystick: {
-    position: 'absolute', flexDirection: 'row', gap: 10, backgroundColor: 'rgba(255,255,255,0.25)',
+    position: 'absolute', flexDirection: 'row', gap: 10, backgroundColor: 'rgba(8,10,16,0.45)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
     borderRadius: 999, padding: 10, zIndex: 5,
   },
-  steerBtn: { backgroundColor: '#F59E0B', borderBottomWidth: 5, borderBottomColor: '#B45309', alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  steerBtn: { backgroundColor: '#FF6A00', borderBottomWidth: 5, borderBottomColor: '#8F3200', alignItems: 'center', justifyContent: 'center', elevation: 4 },
   steerArrow: { fontSize: 26 },
   steerLabel: { fontSize: 10, fontWeight: '900', color: '#fff' },
   rightBtns: { position: 'absolute', flexDirection: 'row', gap: 10, alignItems: 'center', zIndex: 5 },
   hornBtn: { backgroundColor: '#EF4444', borderBottomWidth: 5, borderBottomColor: '#991B1B', alignItems: 'center', justifyContent: 'center', elevation: 4 },
   hornText: { fontSize: 28 },
-  boostBtn: { backgroundColor: '#F97316', borderBottomWidth: 5, borderBottomColor: '#9A3412', alignItems: 'center', justifyContent: 'center', elevation: 5 },
-  boostBtnActive: { backgroundColor: '#EAB308', borderBottomColor: '#A16207' },
+  boostBtn: { backgroundColor: '#FF6A00', borderBottomWidth: 5, borderBottomColor: '#8F3200', alignItems: 'center', justifyContent: 'center', elevation: 5, shadowColor: '#FF6A00', shadowOpacity: 0.5, shadowRadius: 10 },
+  boostBtnActive: { backgroundColor: '#FFC531', borderBottomColor: '#B45309' },
   boostText: { fontSize: 30 },
   boostLabel: { fontSize: 11, fontWeight: '900', color: '#fff' },
-  pauseBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center', elevation: 3 },
+  pauseBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center', elevation: 3 },
   pausedOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30,
     backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center',

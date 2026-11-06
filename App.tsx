@@ -150,8 +150,8 @@ export default function App() {
   if (!profile) {
     return (
       <SafeAreaProvider>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFD93D' }}>
-          <ActivityIndicator size="large" color="#B91C1C" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#07080C' }}>
+          <ActivityIndicator size="large" color="#FF7A1A" />
           <StatusBar style="dark" />
         </View>
       </SafeAreaProvider>
@@ -177,8 +177,10 @@ export default function App() {
   const startRace = (levelId: number, difficulty: DifficultyId, vehicleId: string, extraHearts = 0) => {
     // A one-race trial replaces the equipped car for this start only.
     const useVehicle = profile.trialVehicleId || vehicleId;
+    // Bella ability: +1 Heart — her races start with an extra heart.
+    const bellaHearts = profile.selectedDriver === 'bella' ? 1 : 0;
     music.start();
-    setScreen({ kind: 'race', levelId, difficulty, vehicleId: useVehicle, driverId: profile.selectedDriver, viewMode: profile.viewMode, extraHearts });
+    setScreen({ kind: 'race', levelId, difficulty, vehicleId: useVehicle, driverId: profile.selectedDriver, viewMode: profile.viewMode, extraHearts: extraHearts + bellaHearts });
   };
 
   if (screen.kind === 'race') {

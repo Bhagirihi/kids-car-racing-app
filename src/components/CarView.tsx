@@ -1,4 +1,8 @@
-// A glossy little car drawn with styled Views — no images at all.
+// A glossy die-cast car drawn with styled Views — no images at all.
+// Sleek direction (approved mockup): layered gloss highlights, chrome
+// wheels with hubcaps, neon underglow in 3D, and a friendly face
+// (eyes + smile) on the front view — the car is a character, not a
+// flat box with an emoji on top. No emoji is ever drawn on the body.
 //
 // Every vehicle has its OWN shape (fixes "every vehicle is the same
 // sedan"): the shape comes from `vehicleId`, not from the emoji.
@@ -80,7 +84,15 @@ interface Props {
 
 function RoofBit({ roof, width, accent }: { roof?: string; width: number; accent: string }) {
   if (!roof) return null;
-  if (roof === 'cone') return <Text style={{ fontSize: width * 0.3, lineHeight: width * 0.3 }}>🍦</Text>;
+  if (roof === 'cone') {
+    // Drawn ice-cream cone: tan triangle + pink scoop (no emoji).
+    return (
+      <View style={{ alignItems: 'center' }}>
+        <View style={{ width: width * 0.16, height: width * 0.16, borderRadius: width * 0.08, backgroundColor: '#F9A8D4', borderWidth: 1, borderColor: '#BE185D' }} />
+        <View style={{ width: 0, height: 0, borderLeftWidth: width * 0.09, borderRightWidth: width * 0.09, borderTopWidth: width * 0.16, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#D97706', marginTop: -2 }} />
+      </View>
+    );
+  }
   if (roof === 'taxi') {
     return (
       <View style={{ backgroundColor: '#FACC15', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, borderWidth: 1, borderColor: '#78350F' }}>
@@ -148,17 +160,25 @@ export const CarView = React.memo(function CarView({ color, accent, emoji, width
           {spec.shape !== 'bus' && <View style={[styles.rearStripe, { backgroundColor: stripe }]} />}
           {spec.shape !== 'bus' && <View style={[styles.rearStripe, { backgroundColor: stripe, left: '70%' }]} />}
           {isBus && <View style={{ flexDirection: 'row', gap: 4, marginTop: 6 }}>{[0, 1, 2].map((i) => (<View key={i} style={{ width: 16, height: 10, backgroundColor: '#FEF08A', borderRadius: 3 }} />))}</View>}
-          <View style={[styles.shine, is3d && styles.shine3d]} />
-          {emoji ? <Text style={{ fontSize: width * 0.18, textAlign: 'center' }}>{emoji}</Text> : null}
+          {/* Gloss: top highlight bar + diagonal shine sweep — the
+              die-cast look. No emoji on the body. */}
+          <View style={[styles.shine, styles.shineStrong]} />
+          <View style={[styles.shineDiag, { width: bodyW * 0.28 }]} />
+          <View style={[styles.bottomShade, { width: bodyW }]} />
         </View>
-        {/* tail lights */}
+        {/* tail lights — chrome-rimmed, glowing */}
         <View style={[styles.tailLight, { left: Math.max(2, width * 0.04) }]} />
         <View style={[styles.tailLight, { right: Math.max(2, width * 0.04) }]} />
+        {is3d && <View style={[styles.underglow, { width: width * 0.8, backgroundColor: accent }]} />}
         {/* boost flame — INSIDE the car box, under the bumper */}
         {boosting ? <Text style={{ position: 'absolute', bottom: wheel * 0.4, alignSelf: 'center', fontSize: width * 0.22 }}>🔥</Text> : null}
         {/* wheels — inside the box, never below it */}
-        <View style={[styles.rearWheel, { left: 2, width: wheel, height: wheel, borderRadius: wheel / 2, bottom: 0 }]} />
-        <View style={[styles.rearWheel, { right: 2, width: wheel, height: wheel, borderRadius: wheel / 2, bottom: 0 }]} />
+        <View style={[styles.rearWheel, { left: 2, width: wheel, height: wheel, borderRadius: wheel / 2, bottom: 0 }]}>
+          {is3d && <View style={[styles.hubcap, { width: wheel * 0.42, height: wheel * 0.42, borderRadius: wheel * 0.21 }]} />}
+        </View>
+        <View style={[styles.rearWheel, { right: 2, width: wheel, height: wheel, borderRadius: wheel / 2, bottom: 0 }]}>
+          {is3d && <View style={[styles.hubcap, { width: wheel * 0.42, height: wheel * 0.42, borderRadius: wheel * 0.21 }]} />}
+        </View>
         {spec.shape === 'monster' && (
           <>
             <View style={[styles.rearWheel, { left: width * 0.3, width: wheel * 0.7, height: wheel * 0.7, borderRadius: wheel * 0.35, bottom: 0 }]} />
@@ -184,7 +204,7 @@ export const CarView = React.memo(function CarView({ color, accent, emoji, width
         <View style={[styles.topBody, { backgroundColor: color, width: width * narrow, height: h, borderWidth: 1, borderColor: 'rgba(0,0,0,0.15)' }, is3d && styles.body3d]}>
           {spec.shape !== 'bus' && <View style={[styles.topStripe, { backgroundColor: stripe, left: width * 0.32 }]} />}
           {spec.shape !== 'bus' && <View style={[styles.topStripe, { backgroundColor: stripe, left: width * 0.56 }]} />}
-          <View style={[styles.shine, is3d && styles.shine3d]} />
+          <View style={[styles.shine, styles.shineStrong]} />
           {/* windshield + roof + rear window */}
           <View style={[styles.topGlass, { top: h * 0.14 }]} />
           <View style={[styles.topRoof, { backgroundColor: accent, top: h * 0.4, height: spec.shape === 'bus' ? '34%' : '22%' }]}>
@@ -202,19 +222,31 @@ export const CarView = React.memo(function CarView({ color, accent, emoji, width
   return (
     <View style={[styles.car, { width, height: h }, shake, is3d && styles.car3d]}>
       {is3d && <View style={[styles.carShadow, { width: width * 0.9, bottom: 0 }]} />}
-      <View style={[styles.cabin, { backgroundColor: accent, width: width * (spec.shape === 'bus' ? 0.86 : 0.58), height: spec.shape === 'bus' ? 34 : 30 }]}>
-        {spec.roof && spec.roof !== 'spoiler' ? <RoofBit roof={spec.roof} width={width} accent={accent} /> : <Text style={{ fontSize: width * 0.28 }}>{emoji ?? ''}</Text>}
+      <View style={[styles.cabin, { backgroundColor: '#1E293B', width: width * (spec.shape === 'bus' ? 0.86 : 0.58), height: spec.shape === 'bus' ? 34 : 30 }]}>
+        {spec.roof && spec.roof !== 'spoiler' ? (
+          <RoofBit roof={spec.roof} width={width} accent={accent} />
+        ) : (
+          /* The car has a face: eyes + smile on the windshield. */
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: width * 0.08 }}>
+            <View style={[styles.faceEye, { width: width * 0.09, height: width * 0.11, borderRadius: width * 0.045 }]} />
+            <View style={[styles.faceSmile, { width: width * 0.16, height: width * 0.07, borderBottomWidth: 3, borderBottomColor: '#fff', borderRadius: width * 0.08 }]} />
+            <View style={[styles.faceEye, { width: width * 0.09, height: width * 0.11, borderRadius: width * 0.045 }]} />
+          </View>
+        )}
       </View>
-      <View style={[styles.body, { backgroundColor: color, width, height: h * 0.52, borderWidth: 1, borderColor: 'rgba(0,0,0,0.15)' }, is3d && styles.body3d]}>
-        <View style={[styles.shine, is3d && styles.shine3d]} />
+      <View style={[styles.body, { backgroundColor: color, width, height: h * 0.52, borderWidth: 1, borderColor: 'rgba(0,0,0,0.15)' }, styles.body3d]}>
+        <View style={[styles.shine, styles.shineStrong]} />
+        <View style={[styles.shineDiag, { width: width * 0.3 }]} />
         <View style={[styles.light, { left: 6 }]} />
         <View style={[styles.light, { right: 6 }]} />
+        <View style={[styles.bottomShade, { width }]} />
       </View>
+      {is3d && <View style={[styles.underglow, { width: width * 0.8, backgroundColor: accent }]} />}
       <View style={[styles.wheel, { left: 4, width: wheelF, height: wheelF, borderRadius: wheelF / 2, bottom: 0 }]}>
-        {is3d && <View style={styles.hubcap} />}
+        <View style={[styles.hubcap, { width: wheelF * 0.46, height: wheelF * 0.46, borderRadius: wheelF * 0.23 }]} />
       </View>
       <View style={[styles.wheel, { right: 4, width: wheelF, height: wheelF, borderRadius: wheelF / 2, bottom: 0 }]}>
-        {is3d && <View style={styles.hubcap} />}
+        <View style={[styles.hubcap, { width: wheelF * 0.46, height: wheelF * 0.46, borderRadius: wheelF * 0.23 }]} />
       </View>
     </View>
   );
@@ -241,6 +273,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 4,
   },
   shine3d: { height: 10, backgroundColor: 'rgba(255,255,255,0.7)' },
+  shineStrong: { height: 9, backgroundColor: 'rgba(255,255,255,0.75)' },
+  shineDiag: {
+    position: 'absolute', top: 0, bottom: 0, left: '12%',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    transform: [{ rotate: '18deg' }],
+  },
+  bottomShade: {
+    position: 'absolute', bottom: 0, left: 0, height: 8,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  underglow: {
+    position: 'absolute', bottom: -3, alignSelf: 'center', height: 6,
+    borderRadius: 999, opacity: 0.55, zIndex: 0,
+  },
+  faceEye: { backgroundColor: '#fff' },
+  faceSmile: { marginTop: 6 }, 
   light: {
     position: 'absolute', bottom: 5, width: 12, height: 8,
     backgroundColor: '#FEF08A', borderRadius: 4,
@@ -250,7 +298,10 @@ const styles = StyleSheet.create({
     borderWidth: 3, borderColor: '#9CA3AF', zIndex: 2,
     alignItems: 'center', justifyContent: 'center',
   },
-  hubcap: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E5E7EB' },
+  hubcap: {
+    backgroundColor: '#E5E7EB', borderWidth: 2, borderColor: '#9CA3AF',
+    shadowColor: '#fff', shadowOpacity: 0.6, shadowRadius: 2,
+  },
   // Rear view
   spoiler: { height: 10, borderRadius: 5, marginBottom: 2, zIndex: 1 },
   busRoof: { height: 8, borderRadius: 4, marginBottom: 2, zIndex: 1 },
@@ -270,6 +321,7 @@ const styles = StyleSheet.create({
   rearWheel: {
     position: 'absolute', bottom: 0, backgroundColor: '#1F2937',
     borderWidth: 3, borderColor: '#9CA3AF', zIndex: 2,
+    alignItems: 'center', justifyContent: 'center',
   },
   // Top view
   topBody: { borderRadius: 18, overflow: 'hidden', position: 'relative' },

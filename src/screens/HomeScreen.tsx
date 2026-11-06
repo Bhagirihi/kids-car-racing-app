@@ -22,6 +22,7 @@ import { DRIVERS, driverById } from '../data/drivers';
 import { PAINTS, SKINS, VEHICLES, paintById, skinById, vehicleById } from '../data/skins';
 import { UPGRADES, nextUpgradeCost, type UpgradeId } from '../data/upgrades';
 import { CarView } from '../components/CarView';
+import { SLEEK_BG } from '../theme';
 import { DriverFace, DriverViewMode } from '../components/DriverFace';
 import { ParentsShop } from '../components/ParentsShop';
 import { isAdsConfigured } from '../ads';
@@ -126,11 +127,14 @@ export function HomeScreen(props: Props) {
   ];
 
   return (
-    <LinearGradient colors={['#38BDF8', '#7DD3FC', '#FEF9C3']} style={styles.bg}>
+    <LinearGradient colors={[...SLEEK_BG]} style={styles.bg}>
       <View style={[styles.root, { paddingTop: insets.top + 6, paddingBottom: insets.bottom + 6, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }]}>
         {/* LEFT — hero + PLAY (game menu, not an app header) */}
         <View style={[styles.left, { width: leftW }]}>
-          <Text style={[styles.title, compact && { fontSize: 32 }]}>🏁 RACE!</Text>
+          <View>
+            <Text style={[styles.title, compact && { fontSize: 30 }]}>KIDS CAR</Text>
+            <Text style={[styles.title2, compact && { fontSize: 30 }]}>RACING</Text>
+          </View>
           <TextInput
             style={styles.nameInput}
             placeholder="Your name"
@@ -206,6 +210,7 @@ export function HomeScreen(props: Props) {
                     >
                       <DriverFace driver={d} mode={viewMode} size={40} />
                       <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
+                      <Text style={styles.abilityLine}>{d.abilityIcon} {d.abilityName}</Text>
                       <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to drive' : `🪙 ${d.price} — tap to buy`}</Text>
                     </TouchableOpacity>
                   );
@@ -274,7 +279,7 @@ export function HomeScreen(props: Props) {
                   ))}
                 </View>
               </View>
-          {!profile.adFree && isAdsConfigured && (
+          {!profile.adFree && isAdsConfigured && profile.trophies > 0 && (
             <TouchableOpacity
               style={styles.earnGemsBtn}
               onPress={async () => {
@@ -371,7 +376,7 @@ export function HomeScreen(props: Props) {
                           >
                             <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 💎 5</Text>
                           </TouchableOpacity>
-                          {isAdsConfigured && !profile.adFree ? (
+                          {isAdsConfigured && !profile.adFree && profile.trophies > 0 ? (
                             <TouchableOpacity
                               style={[styles.detailBtn, styles.gemBtn]}
                               onPress={async () => {
@@ -460,7 +465,7 @@ export function HomeScreen(props: Props) {
                           >
                             <Text style={styles.detailBtnText}>🎁 TRY 1 RACE — 💎 5</Text>
                           </TouchableOpacity>
-                          {isAdsConfigured && !profile.adFree ? (
+                          {isAdsConfigured && !profile.adFree && profile.trophies > 0 ? (
                             <TouchableOpacity
                               style={[styles.detailBtn, styles.gemBtn]}
                               onPress={async () => {
@@ -624,6 +629,7 @@ export function HomeScreen(props: Props) {
                   >
                     <DriverFace driver={d} mode={viewMode} size={56} />
                     <Text style={styles.cardName}>{d.faceEmoji} {d.name}</Text>
+                    <Text style={styles.abilityLine}>{d.abilityIcon} {d.abilityName}</Text>
                     <Text style={styles.cardSub}>{isSelected ? '✅ Racing!' : owned ? 'Tap to pick' : d.price === 0 ? 'FREE' : `🪙 ${d.price}`}</Text>
                     <Text style={styles.cardSub}>{d.tagline}</Text>
                   </TouchableOpacity>
@@ -655,11 +661,12 @@ export function HomeScreen(props: Props) {
 }
 
 function StatBar({ label, value }: { label: string; value: number }) {
+  const fill = label === 'Speed' ? '#FF8A1A' : label === 'Acceleration' ? '#2FD8FF' : '#37D67A';
   return (
     <View style={styles.statRow}>
       <Text style={styles.statLabel}>{label}</Text>
       <View style={styles.statTrack}>
-        <View style={[styles.statFill, { width: `${(value / 5) * 100}%` }]} />
+        <View style={[styles.statFill, { width: `${(value / 5) * 100}%`, backgroundColor: fill, shadowColor: fill, shadowOpacity: 0.8, shadowRadius: 6 }]} />
       </View>
       <Text style={styles.statValue}>{value}/5</Text>
     </View>
@@ -667,80 +674,83 @@ function StatBar({ label, value }: { label: string; value: number }) {
 }
 
 const styles = StyleSheet.create({
+  // Sleek dark theme: near-black panels, white italic titles, orange
+  // PLAY, gold selection. Nothing pale or app-like remains.
   bg: { flex: 1 },
   root: { flex: 1, flexDirection: 'row', gap: 12 },
   left: { justifyContent: 'flex-start', gap: 4 },
-  title: { fontSize: 40, fontWeight: '900', color: '#B91C1C', textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 3, height: 3 }, textShadowRadius: 0 },
+  title: { fontSize: 38, fontWeight: '900', fontStyle: 'italic', color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 0, lineHeight: 36 },
+  title2: { fontSize: 38, fontWeight: '900', fontStyle: 'italic', color: '#FF7A1A', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 0, lineHeight: 36 },
   heroSlot: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 72 },
   hero: { alignItems: 'center' },
-  trialChip: { textAlign: 'center', fontWeight: '900', color: '#7C2D12', backgroundColor: '#FEF3C7', borderRadius: 999, overflow: 'hidden', paddingVertical: 4, paddingHorizontal: 10, fontSize: 12 },
-  garageLaunch: { flex: 1.1, backgroundColor: '#F97316', borderRadius: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 4, borderBottomColor: '#9A3412', elevation: 4 },
-  garageLaunchText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+  trialChip: { textAlign: 'center', fontWeight: '900', color: '#FFE9A8', backgroundColor: 'rgba(255,197,49,0.16)', borderRadius: 999, overflow: 'hidden', paddingVertical: 4, paddingHorizontal: 10, fontSize: 12, borderWidth: 1, borderColor: 'rgba(255,197,49,0.4)' },
+  garageLaunch: { flex: 1.1, backgroundColor: '#FF6A00', borderRadius: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 4, borderBottomColor: '#8F3200', elevation: 4 },
+  garageLaunchText: { color: '#fff', fontSize: 16, fontWeight: '900', fontStyle: 'italic' },
   garageBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  backBtn: { backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 3, borderBottomColor: '#15803D' },
-  backBtnText: { color: '#fff', fontWeight: '900', fontSize: 14 },
-  garageTitle: { fontSize: 20, fontWeight: '900', color: '#1E293B', flex: 1 },
-  title2: { fontSize: 42, fontWeight: '900', color: '#1E40AF', textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 3, height: 3 }, textShadowRadius: 0 },
-  tagline: { fontWeight: '800', color: '#334155', fontSize: 14 },
-  nameInput: { borderWidth: 3, borderColor: '#FACC15', borderRadius: 14, paddingVertical: 6, paddingHorizontal: 12, fontSize: 16, fontWeight: '800', color: '#1E293B', backgroundColor: '#FEFCE8', textAlign: 'center' },
+  backBtn: { backgroundColor: '#37D67A', borderRadius: 14, paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 3, borderBottomColor: '#0E7A45' },
+  backBtnText: { color: '#06281A', fontWeight: '900', fontSize: 14 },
+  garageTitle: { fontSize: 20, fontWeight: '900', fontStyle: 'italic', color: '#F2F4F8', flex: 1 },
+  tagline: { fontWeight: '800', color: '#9AA3B5', fontSize: 14 },
+  nameInput: { borderWidth: 2, borderColor: 'rgba(255,255,255,0.22)', borderRadius: 14, paddingVertical: 6, paddingHorizontal: 12, fontSize: 16, fontWeight: '800', color: '#F2F4F8', backgroundColor: 'rgba(10,12,20,0.62)', textAlign: 'center' },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  badge: { backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, fontWeight: '900', color: '#1E293B', fontSize: 15, elevation: 2 },
-  playBtn: { backgroundColor: '#22C55E', borderRadius: 24, paddingVertical: 14, borderBottomWidth: 6, borderBottomColor: '#15803D', elevation: 6 },
-  playText: { color: '#fff', fontSize: 30, fontWeight: '900', textAlign: 'center' },
-  racingNow: { textAlign: 'center', fontWeight: '800', color: '#1E293B', fontSize: 13 },
+  badge: { backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, fontWeight: '900', color: '#FFFFFF', fontSize: 15, elevation: 2 },
+  playBtn: { backgroundColor: '#FF6A00', borderRadius: 18, paddingVertical: 16, borderBottomWidth: 6, borderBottomColor: '#8F3200', elevation: 8, shadowColor: '#FF6A00', shadowOpacity: 0.5, shadowRadius: 12 },
+  playText: { color: '#fff', fontSize: 32, fontWeight: '900', fontStyle: 'italic', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 },
+  racingNow: { textAlign: 'center', fontWeight: '800', color: '#C7CEDE', fontSize: 13 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-  roundBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center', elevation: 2 },
+  roundBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center', elevation: 2 },
   roundText: { fontSize: 21 },
-  parentNote: { fontWeight: '700', color: '#475569', fontSize: 12 },
-  parentsBtn: { backgroundColor: '#E0E7FF', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, alignItems: 'center', borderWidth: 2, borderColor: '#6366F1' },
-  parentsBtnText: { fontWeight: '900', color: '#3730A3', fontSize: 13 },
-  unlockAllBadge: { textAlign: 'center', fontWeight: '900', color: '#B45309', fontSize: 13 },
+  parentNote: { fontWeight: '700', color: '#9AA3B5', fontSize: 12 },
+  parentsBtn: { backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, alignItems: 'center', borderWidth: 2, borderColor: '#6366F1' },
+  parentsBtnText: { fontWeight: '900', color: '#A5B4FC', fontSize: 13 },
+  unlockAllBadge: { textAlign: 'center', fontWeight: '900', color: '#FFC531', fontSize: 13 },
   right: { flex: 1 },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  section: { fontSize: 15, fontWeight: '900', color: '#1E293B', marginTop: 2, marginBottom: 2, backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 10, alignSelf: 'flex-start', elevation: 2 },
-  viewToggle: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 12, padding: 3, gap: 3 },
+  section: { fontSize: 15, fontWeight: '900', fontStyle: 'italic', color: '#F2F4F8', marginTop: 2, marginBottom: 2, backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 10, alignSelf: 'flex-start', elevation: 2 },
+  viewToggle: { flexDirection: 'row', backgroundColor: 'rgba(10,12,20,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 12, padding: 3, gap: 3 },
   viewBtn: { borderRadius: 9, paddingVertical: 5, paddingHorizontal: 12 },
-  viewBtnSelected: { backgroundColor: '#2563EB' },
-  viewBtnText: { fontWeight: '900', color: '#475569', fontSize: 14 },
-  viewBtnTextSelected: { color: '#fff' },
+  viewBtnSelected: { backgroundColor: '#FFC531' },
+  viewBtnText: { fontWeight: '900', color: '#9AA3B5', fontSize: 14 },
+  viewBtnTextSelected: { color: '#0B0D13' },
   hRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
-  gameCard: { width: 108, backgroundColor: '#fff', borderRadius: 16, paddingVertical: 3, paddingHorizontal: 6, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
+  gameCard: { width: 108, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16, paddingVertical: 3, paddingHorizontal: 6, borderWidth: 3, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', elevation: 3 },
   levelCard: { width: 100 },
-  selected: { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' },
+  selected: { borderColor: '#FFC531', backgroundColor: 'rgba(255,197,49,0.14)' },
   locked: { opacity: 0.55 },
   levelIcon: { fontSize: 26 },
-  cardName: { fontWeight: '900', textAlign: 'center', color: '#1E293B', fontSize: 14, marginTop: 2 },
-  cardSub: { textAlign: 'center', color: '#64748B', fontWeight: '700', fontSize: 12 },
-  diffBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 8, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
-  diffLabel: { fontSize: 15, fontWeight: '900', color: '#1E293B' },
-  shopMsg: { textAlign: 'center', fontWeight: '800', color: '#B45309', marginBottom: 4 },
+  cardName: { fontWeight: '900', textAlign: 'center', color: '#F2F4F8', fontSize: 14, marginTop: 2 },
+  cardSub: { textAlign: 'center', color: '#9AA3B5', fontWeight: '700', fontSize: 12 },
+  abilityLine: { textAlign: 'center', color: '#2FD8FF', fontWeight: '900', fontSize: 12, marginTop: 1 },
+  diffBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 8, borderWidth: 3, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', elevation: 3 },
+  diffLabel: { fontSize: 15, fontWeight: '900', color: '#F2F4F8' },
+  shopMsg: { textAlign: 'center', fontWeight: '800', color: '#FFC531', marginBottom: 4 },
   tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  tabBtn: { backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13, borderWidth: 2, borderColor: 'transparent' },
-  tabBtnSelected: { backgroundColor: '#2563EB', borderColor: '#1E40AF' },
-  tabBtnText: { fontWeight: '900', color: '#475569', fontSize: 13 },
-  tabBtnTextSelected: { color: '#fff' },
+  tabBtn: { backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13, borderWidth: 2, borderColor: 'rgba(255,255,255,0.12)' },
+  tabBtnSelected: { backgroundColor: '#FFC531', borderColor: '#FFE1A0' },
+  tabBtnText: { fontWeight: '900', color: '#C7CEDE', fontSize: 13 },
+  tabBtnTextSelected: { color: '#0B0D13' },
   garageRow: { flexDirection: 'row', gap: 8 },
   garageGrid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  garageCard: { width: '31%', backgroundColor: '#fff', borderRadius: 14, padding: 8, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
-  equippedCard: { backgroundColor: '#FFFBEB' },
-  detailPanel: { width: 182, backgroundColor: '#fff', borderRadius: 18, padding: 12, alignItems: 'center', borderWidth: 3, borderColor: '#F59E0B', elevation: 3 },
-  detailName: { fontWeight: '900', color: '#1E293B', fontSize: 16, marginTop: 4, textAlign: 'center' },
-  detailPrice: { fontWeight: '900', color: '#B45309', marginTop: 6, fontSize: 14 },
-  detailBtn: { backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 16, marginTop: 10, borderBottomWidth: 3, borderBottomColor: '#15803D' },
-  detailBtnDone: { backgroundColor: '#94A3B8' },
+  garageCard: { width: '31%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 14, padding: 8, borderWidth: 3, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', elevation: 3 },
+  equippedCard: { backgroundColor: 'rgba(255,197,49,0.14)' },
+  detailPanel: { width: 182, backgroundColor: '#161B28', borderRadius: 18, padding: 12, alignItems: 'center', borderWidth: 3, borderColor: '#FFC531', elevation: 3, shadowColor: '#FFC531', shadowOpacity: 0.25, shadowRadius: 10 },
+  detailName: { fontWeight: '900', fontStyle: 'italic', color: '#F2F4F8', fontSize: 16, marginTop: 4, textAlign: 'center' },
+  detailPrice: { fontWeight: '900', color: '#FFC531', marginTop: 6, fontSize: 14 },
+  detailBtn: { backgroundColor: '#FF6A00', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 16, marginTop: 10, borderBottomWidth: 3, borderBottomColor: '#8F3200' },
+  detailBtnDone: { backgroundColor: '#475569' },
   detailBtnText: { color: '#fff', fontWeight: '900', fontSize: 14 },
   statRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, width: '100%' },
-  statLabel: { width: 78, fontSize: 11, fontWeight: '800', color: '#475569' },
-  statTrack: { flex: 1, height: 8, backgroundColor: '#E2E8F0', borderRadius: 4, overflow: 'hidden' },
-  statFill: { height: '100%', backgroundColor: '#F59E0B' },
-  statValue: { fontSize: 11, fontWeight: '900', color: '#1E293B', width: 22 },
+  statLabel: { width: 78, fontSize: 11, fontWeight: '800', color: '#C7CEDE' },
+  statTrack: { flex: 1, height: 8, backgroundColor: 'rgba(255,255,255,0.13)', borderRadius: 4, overflow: 'hidden' },
+  statFill: { height: '100%', backgroundColor: '#FF8A1A' },
+  statValue: { fontSize: 11, fontWeight: '900', color: '#F2F4F8', width: 22 },
   shopGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  shopCard: { width: '31%', backgroundColor: '#fff', borderRadius: 16, padding: 10, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', elevation: 3 },
-  upgradeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 16, padding: 10, marginBottom: 8, elevation: 3 },
+  shopCard: { width: '31%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16, padding: 10, borderWidth: 3, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', elevation: 3 },
+  upgradeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', borderRadius: 16, padding: 10, marginBottom: 8, elevation: 3 },
   upgradeEmoji: { fontSize: 30 },
   upgradeInfo: { flex: 1 },
-  upgradeName: { fontWeight: '900', color: '#1E293B', fontSize: 15 },
-  upgradePips: { color: '#F59E0B', fontSize: 16, letterSpacing: 2 },
+  upgradeName: { fontWeight: '900', color: '#F2F4F8', fontSize: 15 },
+  upgradePips: { color: '#FFC531', fontSize: 16, letterSpacing: 2 },
   upgradeBtns: { gap: 6, alignItems: 'flex-end' },
   earnGemsBtn: { backgroundColor: '#7C3AED', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, alignSelf: 'flex-start', marginBottom: 8, elevation: 3 },
   earnGemsText: { color: '#fff', fontWeight: '900', fontSize: 14 },
